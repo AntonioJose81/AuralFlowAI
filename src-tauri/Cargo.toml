@@ -27,7 +27,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-whisper-rs = { version = "0.16", features = ["metal"] }
+whisper-rs = "0.16"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 whisper-rs = "0.16"

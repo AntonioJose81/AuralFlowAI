@@ -28,6 +28,8 @@ jobs:
           workspaces: src-tauri
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
+      - name: Generate platform icons
+        run: npm run tauri icon src-tauri/icons/icon.png
       - name: Build frontend
         run: npm run build
       - name: Normalize Rust formatting
