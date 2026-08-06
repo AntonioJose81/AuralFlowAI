@@ -45,9 +45,7 @@ impl AudioRecorder {
         let device = host
             .default_input_device()
             .ok_or_else(|| AuralFlowError::Audio("no se encontró un micrófono".into()))?;
-        let device_name = device
-            .name()
-            .unwrap_or_else(|_| "Micrófono predeterminado".into());
+        let device_name = device.to_string();
         let supported = device
             .default_input_config()
             .map_err(|error| AuralFlowError::Audio(format!("configuración no disponible: {error}")))?;
@@ -55,7 +53,7 @@ impl AudioRecorder {
         let config: StreamConfig = supported.into();
         let samples = Arc::new(Mutex::new(Vec::new()));
         let max_samples =
-            config.sample_rate.0 as usize * config.channels as usize * MAX_RECORDING_SECONDS;
+            config.sample_rate as usize * config.channels as usize * MAX_RECORDING_SECONDS;
         let stream = match sample_format {
             SampleFormat::F32 => {
                 build_stream::<f32>(&device, &config, Arc::clone(&samples), max_samples)?
@@ -78,13 +76,13 @@ impl AudioRecorder {
 
         let info = AudioInfo {
             device_name,
-            sample_rate: config.sample_rate.0,
+            sample_rate: config.sample_rate,
             channels: config.channels,
         };
         self.active = Some(ActiveRecording {
             stream,
             samples,
-            source_rate: config.sample_rate.0,
+            source_rate: config.sample_rate,
             channels: config.channels,
         });
         Ok(info)
@@ -124,7 +122,7 @@ where
     let error_callback = |error| eprintln!("AuralFlow audio stream error: {error}");
     device
         .build_input_stream(
-            config,
+            *config,
             move |input: &[T], _| {
                 if let Ok(mut destination) = samples.lock() {
                     let remaining = max_samples.saturating_sub(destination.len());

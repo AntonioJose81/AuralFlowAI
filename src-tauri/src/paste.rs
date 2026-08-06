@@ -23,7 +23,7 @@ pub fn paste_text(text: &str) -> Result<()> {
         .map_err(|error| AuralFlowError::Clipboard(error.to_string()))?;
 
     #[cfg(target_os = "macos")]
-    let modifier = Key::Command;
+    let modifier = Key::Meta;
     #[cfg(target_os = "windows")]
     let modifier = Key::Control;
 
