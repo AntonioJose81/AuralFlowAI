@@ -1,5 +1,6 @@
 mod audio;
 mod config;
+mod credentials;
 mod error;
 mod model;
 mod online;
@@ -38,6 +39,25 @@ struct PreviewResult {
     text: String,
 }
 
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn groq_api_key(state: &RuntimeState) -> std::result::Result<Option<String>, String> {
+    let mut cached = state
+        .groq_api_key
+        .lock()
+        .map_err(|_| "Clave API: estado bloqueado".to_string())?;
+    if cached.is_none() {
+        *cached = credentials::load_groq_key()?;
+    }
+    Ok(cached.clone())
+}
+
 #[tauri::command]
 fn load_settings(app: AppHandle) -> std::result::Result<Settings, String> {
     config::load(&app).map_err(|error| error.to_string())
@@ -57,6 +77,7 @@ fn set_groq_api_key(
     if key.len() < 20 || key.len() > 300 {
         return Err("La clave API de Groq no parece válida.".into());
     }
+    credentials::save_groq_key(key)?;
     *state
         .groq_api_key
         .lock()
@@ -66,15 +87,12 @@ fn set_groq_api_key(
 
 #[tauri::command]
 fn groq_key_status(state: State<'_, RuntimeState>) -> std::result::Result<bool, String> {
-    Ok(state
-        .groq_api_key
-        .lock()
-        .map_err(|_| "Clave API: estado bloqueado".to_string())?
-        .is_some())
+    Ok(groq_api_key(&state)?.is_some())
 }
 
 #[tauri::command]
 fn clear_groq_api_key(state: State<'_, RuntimeState>) -> std::result::Result<(), String> {
+    credentials::delete_groq_key()?;
     *state
         .groq_api_key
         .lock()
@@ -141,11 +159,7 @@ async fn preview_transcription(
     }
 
     if settings.engine == "groq" {
-        let api_key = state
-            .groq_api_key
-            .lock()
-            .map_err(|_| "Clave API: estado bloqueado".to_string())?
-            .clone()
+        let api_key = groq_api_key(&state)?
             .ok_or_else(|| "Servicio online: falta la clave API de Groq".to_string())?;
         let text = online::transcribe_groq(&audio.samples, &settings.language, &api_key)
             .await
@@ -186,11 +200,7 @@ async fn stop_and_transcribe(
     let started = Instant::now();
 
     if settings.engine == "groq" {
-        let api_key = state
-            .groq_api_key
-            .lock()
-            .map_err(|_| "Clave API: estado bloqueado".to_string())?
-            .clone()
+        let api_key = groq_api_key(&state)?
             .ok_or_else(|| "Servicio online: falta la clave API de Groq".to_string())?;
         let text = online::transcribe_groq(&audio.samples, &language, &api_key)
             .await
@@ -253,9 +263,21 @@ fn copy_text(text: String) -> std::result::Result<(), String> {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(RuntimeState::default())
         .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let window_to_hide = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window_to_hide.hide();
+                    }
+                });
+            }
             let show = MenuItem::with_id(app, "show", "Mostrar AuralFlow", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
@@ -268,10 +290,7 @@ pub fn run() {
             }
             tray.on_menu_event(|app, event| match event.id.as_ref() {
                 "show" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                    show_main_window(app);
                 }
                 "quit" => app.exit(0),
                 _ => {}
@@ -284,10 +303,7 @@ pub fn run() {
                 } = event
                 {
                     let app = tray.app_handle();
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                    show_main_window(app);
                 }
             })
             .build(app)?;
@@ -307,6 +323,12 @@ pub fn run() {
             stop_and_transcribe,
             copy_text,
         ])
-        .run(tauri::generate_context!())
-        .expect("error al ejecutar AuralFlow");
+        .build(tauri::generate_context!())
+        .expect("error al construir AuralFlow")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                show_main_window(app);
+            }
+        });
 }

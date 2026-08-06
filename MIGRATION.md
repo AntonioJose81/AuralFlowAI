@@ -10,7 +10,7 @@ El archivo `app.py` original servía para validar la idea, pero no se utiliza en
 | `keyboard` | Plugin global-shortcut de Tauri |
 | `pyperclip`/PyAutoGUI | `arboard` + `enigo` |
 | `config.ini` junto al ejecutable | JSON en el directorio de configuración del usuario |
-| API key en texto plano | Whisper local sin clave o clave Groq sólo en memoria |
+| API key en texto plano | Whisper local sin clave o clave Groq en el llavero seguro del sistema |
 | PyInstaller sólo Windows | Instaladores Tauri para macOS y Windows |
 
 ## Interacción compacta

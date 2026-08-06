@@ -63,13 +63,23 @@ async function placeDock() {
   if (saved) {
     try {
       const position = JSON.parse(saved);
-      if (Number.isFinite(position.x) && Number.isFinite(position.y)) {
+      const scale = window.devicePixelRatio || 1;
+      const minX = (window.screen.availLeft ?? 0) * scale;
+      const minY = (window.screen.availTop ?? 0) * scale;
+      const maxX = minX + window.screen.availWidth * scale;
+      const maxY = minY + window.screen.availHeight * scale;
+      const visible = Number.isFinite(position.x)
+        && Number.isFinite(position.y)
+        && position.x + COMPACT_WIDTH * scale > minX
+        && position.x < maxX
+        && position.y + COMPACT_HEIGHT * scale > minY
+        && position.y < maxY;
+      if (visible) {
         await windowHandle.setPosition(new PhysicalPosition(position.x, position.y));
         return;
       }
-    } catch (_) {
-      window.localStorage.removeItem(POSITION_STORAGE_KEY);
-    }
+    } catch (_) {}
+    window.localStorage.removeItem(POSITION_STORAGE_KEY);
   }
   const left = (window.screen.availLeft ?? 0) + window.screen.availWidth - COMPACT_WIDTH - 12;
   const top = (window.screen.availTop ?? 0) + window.screen.availHeight - COMPACT_HEIGHT - 12;
@@ -139,8 +149,8 @@ async function updateEngineUi() {
   if (online) {
     const active = await invoke("groq_key_status");
     elements.groqKeyStatus.textContent = active
-      ? "Clave activa en esta sesión. El audio se enviará a Groq."
-      : "Pega una clave. Solo vivirá en memoria durante esta sesión; no se guarda en disco.";
+      ? "Clave guardada de forma segura en el llavero del sistema. El audio se enviará a Groq."
+      : "Pega una clave. Se guardará cifrada en el llavero seguro de este dispositivo.";
     elements.clearGroqKey.disabled = !active;
   }
 }
