@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>AuralFlow</title>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="dictation-bar">
+        <button id="drag-handle" class="drag-handle" type="button" title="Arrastrar AuralFlow" aria-label="Mover AuralFlow">⠿</button>
+        <button id="record-button" class="record-button" type="button" aria-label="Empezar a grabar">
+          <span class="record-core"></span>
+        </button>
+
+        <div class="flow" data-tauri-drag-region>
+          <div class="status-line" data-tauri-drag-region>
+            <span id="status-dot" class="status-dot" aria-hidden="true"></span>
+            <strong id="status-title">Listo</strong>
+            <span id="status-detail">Pulsa o usa el atajo</span>
+          </div>
+          <div id="meter" class="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <p id="transcript" class="transcript empty" aria-live="polite">Tu voz aparecerá aquí mientras hablas.</p>
+        </div>
+
+        <nav class="window-actions" aria-label="Acciones">
+          <button id="copy-button" class="icon-button" type="button" title="Copiar" disabled>⧉</button>
+          <button id="settings-button" class="icon-button" type="button" title="Preferencias">⚙</button>
+          <button id="hide-button" class="icon-button" type="button" title="Ocultar en la bandeja">−</button>
+        </nav>
+      </section>
+
+      <section id="settings-panel" class="settings-panel" hidden>
+        <div class="settings-heading">
+          <div>
+            <span class="eyebrow">PREFERENCIAS</span>
+            <h1>AuralFlow</h1>
+          </div>
+          <span id="privacy-pill" class="privacy-pill">Local · privado</span>
+        </div>
+
+        <div class="settings-grid">
+          <label class="wide">
+            Motor de transcripción
+            <select id="engine">
+              <option value="local">Local · gratis y privado</option>
+              <option value="groq">Groq · online ultrarrápido</option>
+            </select>
+          </label>
+          <div id="groq-settings" class="groq-settings wide" hidden>
+            <label>
+              Clave API de Groq
+              <input id="groq-api-key" type="password" autocomplete="off" placeholder="gsk_…" />
+            </label>
+            <button id="clear-groq-key" class="text-button" type="button">Olvidar clave</button>
+            <small id="groq-key-status">La clave se guarda en el llavero seguro del sistema. El audio se envía a Groq.</small>
+          </div>
+          <div id="local-settings" class="local-settings wide">
+            <label>
+              Modelo
+              <select id="model-name">
+                <option value="tiny-q5_1">Tiny Q5 · máxima velocidad</option>
+                <option value="base-q5_1">Base Q5 · rápido y preciso</option>
+                <option value="small-q5_1">Small Q5 · más calidad</option>
+                <option value="large-v3-turbo-q5_0">Large Turbo Q5 · calidad máxima</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            Idioma
+            <select id="language">
+              <option value="es">Español</option>
+              <option value="auto">Automático</option>
+              <option value="en">Inglés</option>
+            </select>
+          </label>
+          <label class="wide">
+            Atajo global
+            <input id="hotkey" value="CommandOrControl+Shift+Space" />
+          </label>
+          <label class="switch-row wide">
+            <span><strong>Pegar al terminar</strong><small>Usa ⌘V o Ctrl+V en la aplicación activa.</small></span>
+            <input id="auto-paste" type="checkbox" checked />
+          </label>
+        </div>
+
+        <div id="model-actions" class="model-actions">
+          <div>
+            <strong id="model-status">Comprobando modelo…</strong>
+            <small id="model-path"></small>
+          </div>
+          <button id="download-button" class="secondary-button" type="button">Descargar</button>
+        </div>
+        <div id="model-progress" class="progress-track"><span id="download-progress"></span></div>
+        <button id="save-button" class="primary-button" type="button">Guardar y cerrar</button>
+      </section>
+
+      <p id="toast" class="toast" role="status" aria-live="polite"></p>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
