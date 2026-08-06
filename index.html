@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>AuralFlow</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div>
+          <p class="eyebrow">DICTADO LOCAL</p>
+          <h1>AuralFlow</h1>
+        </div>
+        <span class="privacy-pill">Privado · sin nube</span>
+      </header>
+
+      <section class="hero panel" aria-labelledby="record-title">
+        <div class="status-row">
+          <div>
+            <p id="record-title" class="status-title">Listo para escuchar</p>
+            <p id="status-detail" class="status-detail">Pulsa el botón o usa el atajo global.</p>
+          </div>
+          <span id="status-dot" class="status-dot" aria-hidden="true"></span>
+        </div>
+
+        <div id="meter" class="meter" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+
+        <button id="record-button" class="record-button" type="button">
+          <span class="record-icon"></span>
+          <span id="record-label">Empezar a grabar</span>
+        </button>
+        <p id="shortcut-hint" class="shortcut-hint"></p>
+      </section>
+
+      <section class="panel transcript-panel" aria-labelledby="transcript-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ÚLTIMO RESULTADO</p>
+            <h2 id="transcript-title">Transcripción</h2>
+          </div>
+          <button id="copy-button" class="ghost-button" type="button" disabled>Copiar</button>
+        </div>
+        <p id="transcript" class="transcript empty">Aquí aparecerá el texto transcrito.</p>
+      </section>
+
+      <details class="panel settings-panel">
+        <summary>
+          <span>
+            <span class="eyebrow">PREFERENCIAS</span>
+            <strong>Modelo y comportamiento</strong>
+          </span>
+          <span class="chevron">⌄</span>
+        </summary>
+
+        <div class="settings-grid">
+          <label>
+            Modelo local
+            <select id="model-name">
+              <option value="base-q5_1">Base Q5 · equipos modestos</option>
+              <option value="small-q5_1">Small Q5 · recomendado</option>
+              <option value="large-v3-turbo-q5_0">Large v3 Turbo Q5 · máxima calidad</option>
+            </select>
+          </label>
+
+          <label>
+            Idioma
+            <select id="language">
+              <option value="es">Español</option>
+              <option value="auto">Detección automática</option>
+              <option value="en">Inglés</option>
+            </select>
+          </label>
+
+          <label class="wide">
+            Atajo global
+            <input id="hotkey" value="CommandOrControl+Shift+Space" />
+          </label>
+
+          <label class="switch-row wide">
+            <span>
+              <strong>Pegar automáticamente</strong>
+              <small>Copia la transcripción y simula ⌘V o Ctrl+V.</small>
+            </span>
+            <input id="auto-paste" type="checkbox" checked />
+          </label>
+        </div>
+
+        <div class="model-actions">
+          <div>
+            <strong id="model-status">Comprobando modelo…</strong>
+            <small id="model-path"></small>
+          </div>
+          <button id="download-button" class="secondary-button" type="button">Descargar modelo</button>
+        </div>
+        <div class="progress-track" aria-hidden="true"><span id="download-progress"></span></div>
+
+        <button id="save-button" class="primary-button" type="button">Guardar preferencias</button>
+      </details>
+
+      <p id="toast" class="toast" role="status" aria-live="polite"></p>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

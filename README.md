@@ -1,109 +1,97 @@
-# AuralFlowAI
- Una aplicación de escritorio ligera para Windows que transcribe y formatea tu voz a texto en cualquier aplicación, potenciada por Google Gemini. Tu asistente de dictado personal y personalizable.
+# AuralFlow
 
- ---
+AuralFlow convierte voz en texto de forma local y pega el resultado en la aplicación activa. Esta versión reemplaza el prototipo Python/Gemini por una aplicación de escritorio Tauri 2 con núcleo Rust y `whisper.cpp`.
 
-## 🛠️ Guía de Instalación y Compilación (Para Desarrolladores y Entusiastas)
+## Qué cambia en la versión 0.2
 
-¿Quieres modificar el código, añadir nuevas funciones o simplemente compilar tu propia versión de AuralFlow? ¡Genial! Sigue estos pasos.
+- La transcripción se ejecuta en el dispositivo: no requiere API key ni sube el audio.
+- Funciona con modelos Whisper multilingües cuantizados.
+- Captura el micrófono en memoria, mezcla canales y remuestrea a 16 kHz.
+- Usa un atajo global configurable.
+- Guarda configuración y modelos en los directorios de usuario del sistema.
+- Genera `.app`/`.dmg` en macOS y `.msi`/NSIS en Windows.
+- Separa interfaz, audio, modelos, configuración, transcripción y pegado.
 
-### **Requisitos Previos**
+## Modelos disponibles
 
--   **Python:** Asegúrate de tener instalado Python 3.10 o una versión superior. Puedes descargarlo desde [python.org](https://www.python.org/downloads/).
--   **Git:** Necesario para clonar el repositorio. Puedes descargarlo desde [git-scm.com](https://git-scm.com/downloads).
+| Modelo | Uso recomendado |
+| --- | --- |
+| `base-q5_1` | Equipos modestos; menor descarga y mayor velocidad |
+| `small-q5_1` | Opción predeterminada; buen equilibrio para español |
+| `large-v3-turbo-q5_0` | Equipos potentes; mayor precisión |
 
----
+Los modelos se descargan bajo demanda desde el repositorio oficial usado por `whisper.cpp`. AuralFlow nunca incluye modelos dentro del repositorio Git.
 
-### **Paso 1: Obtener el Código Fuente**
+## Requisitos de desarrollo
 
-Abre una terminal o `CMD` y clona este repositorio en tu ordenador:
+- Rust estable 1.85 o posterior.
+- Node.js 20 o posterior.
+- Dependencias de Tauri 2 para el sistema operativo.
+- En macOS: Xcode Command Line Tools.
+- En Windows: Microsoft C++ Build Tools y WebView2.
 
-```bash
-git clone https://github.com/TU_USUARIO/AuralFlow.git
-```
+Consulta los [prerrequisitos oficiales de Tauri](https://v2.tauri.app/start/prerequisites/).
 
-Luego, navega a la carpeta del proyecto:
-
-```bash
-cd AuralFlow
-```
-
----
-
-### **Paso 2: Crear un Entorno Virtual (Práctica Recomendada)**
-
-Es muy recomendable trabajar en un entorno virtual para no instalar las librerías en tu sistema global.
-
-1.  **Crea el entorno:**
-    ```bash
-    python -m venv venv
-    ```
-
-2.  **Activa el entorno:**
-    *   En Windows (CMD/PowerShell):
-        ```bash
-        venv\Scripts\activate
-        ```
-    *   En macOS/Linux:
-        ```bash
-        source venv/bin/activate
-        ```
-    Verás `(venv)` al principio de la línea de tu terminal, indicando que el entorno está activo.
-
----
-
-### **Paso 3: Instalar las Dependencias**
-
-Con el entorno virtual activado, instala todas las librerías que AuralFlow necesita con un solo comando:
+## Ejecutar en desarrollo
 
 ```bash
-pip install -r requirements.txt
+npm install
+npm run tauri dev
 ```
-*(Este comando lee el archivo `requirements.txt` e instala automáticamente `customtkinter`, `pyaudio`, `keyboard`, etc.)*
 
----
+La primera vez, abre **Modelo y comportamiento** y descarga un modelo. `small-q5_1` es la opción recomendada.
 
-### **Paso 4: Configurar tu API Key**
-
-1.  Abre el archivo `config.ini` con un editor de texto.
-2.  Busca la línea `api_key =`.
-3.  Pega tu clave de API de Google Gemini después del signo `=`.
-    > 💡 Si no tienes una, puedes obtenerla gratis en [Google AI Studio](https://aistudio.google.com/). Recuerda que necesitas habilitar la facturación en tu proyecto de Google Cloud para que la API funcione.
-
----
-
-### **Paso 5: Probar el Script**
-
-Antes de compilar, asegúrate de que todo funciona correctamente ejecutando el script de Python:
+## Pruebas y comprobaciones
 
 ```bash
-python app.py
+npm run build
+cd src-tauri
+cargo fmt --check
+cargo check
+cargo test
 ```
-La aplicación debería abrirse y ser completamente funcional.
 
----
+## Crear instaladores
 
-### **Paso 6: Compilar tu Propio Archivo `.exe`**
+Los artefactos deben compilarse en su sistema de destino:
 
-Para crear un archivo ejecutable autocontenido (`.exe`) que puedas compartir o usar sin necesidad de tener Python instalado, usaremos la herramienta PyInstaller.
+```bash
+npm run tauri build
+```
 
-1.  **Instala PyInstaller** (si aún no lo tienes):
-    ```bash
-    pip install pyinstaller
-    ```
+- Windows produce instaladores MSI y NSIS.
+- macOS produce un paquete `.app` y un DMG.
+- El workflow `build-desktop.yml` construye ambos sistemas manualmente desde GitHub Actions.
 
-2.  **Ejecuta el comando de compilación:**
-    Este comando está optimizado para incluir todos los archivos necesarios y evitar errores comunes.
-    ```bash
-    pyinstaller --onefile --windowed --add-data "config.ini;." --collect-data certifi app.py
-    ```
+## Permisos
 
-    *   `--onefile`: Empaqueta todo en un único archivo `.exe`.
-    *   `--windowed`: Oculta la ventana de la terminal al ejecutar la aplicación.
-    *   `--add-data "config.ini;."`: Asegura que tu archivo de configuración se incluya en el paquete.
-    *   `--collect-data certifi`: Soluciona el problema de los certificados SSL para las llamadas a la API.
+### macOS
 
-3.  **¡Listo! Encuentra tu `.exe`**
-    Una vez que el proceso termine, se habrá creado una carpeta llamada `dist`. Dentro de ella, encontrarás tu `app.exe`, listo para ser usado y distribuido.
+AuralFlow solicita acceso al micrófono. Para pegar automáticamente en otras aplicaciones también necesita permiso en **Ajustes del Sistema → Privacidad y seguridad → Accesibilidad**. Una distribución pública debe firmarse y notarizarse.
 
----
+### Windows
+
+Windows puede impedir el pegado en programas ejecutados como administrador cuando AuralFlow no está elevado. Ésta es una protección del sistema, no un error de transcripción.
+
+## Privacidad
+
+- El audio sólo existe en memoria durante la grabación y transcripción.
+- No se crean archivos WAV temporales.
+- No hay telemetría ni llamadas a servicios de IA.
+- La única descarga de red es el modelo solicitado por el usuario.
+
+## Estructura
+
+```text
+src/                         Interfaz web local
+src-tauri/src/audio.rs       Captura y remuestreo
+src-tauri/src/model.rs       Descarga y almacenamiento de modelos
+src-tauri/src/transcribe.rs  Inferencia Whisper
+src-tauri/src/paste.rs       Portapapeles y pegado
+src-tauri/src/config.rs      Preferencias por usuario
+.github/workflows/           Verificación y builds de escritorio
+```
+
+## Estado conocido
+
+Ésta es la primera base de la migración nativa. Antes de publicar una release deben validarse físicamente el micrófono, el permiso de Accesibilidad y el pegado en un Mac y un PC. También debe decidirse y corregirse la licencia del repositorio: la licencia Creative Commons heredada no se modifica automáticamente en esta migración.
