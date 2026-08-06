@@ -6,7 +6,10 @@
   "permissions": [
     "core:default",
     "core:window:allow-hide",
+    "core:window:allow-outer-position",
+    "core:window:allow-set-position",
     "core:window:allow-set-size",
+    "core:window:allow-start-dragging",
     "global-shortcut:allow-is-registered",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister"

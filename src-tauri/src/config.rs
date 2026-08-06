@@ -8,6 +8,8 @@ use crate::error::{AuralFlowError, Result};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    #[serde(default = "default_engine")]
+    pub engine: String,
     pub model_name: String,
     pub language: String,
     pub hotkey: String,
@@ -17,6 +19,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            engine: default_engine(),
             model_name: "tiny-q5_1".into(),
             language: "es".into(),
             hotkey: "CommandOrControl+Shift+Space".into(),
@@ -27,6 +30,9 @@ impl Default for Settings {
 
 impl Settings {
     pub fn validate(&self) -> Result<()> {
+        if !matches!(self.engine.as_str(), "local" | "groq") {
+            return Err(AuralFlowError::Config("motor no permitido".into()));
+        }
         if !crate::model::is_supported_model(&self.model_name) {
             return Err(AuralFlowError::Config("modelo no permitido".into()));
         }
@@ -38,6 +44,10 @@ impl Settings {
         }
         Ok(())
     }
+}
+
+fn default_engine() -> String {
+    "local".into()
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf> {

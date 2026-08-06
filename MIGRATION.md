@@ -10,12 +10,14 @@ El archivo `app.py` original servía para validar la idea, pero no se utiliza en
 | `keyboard` | Plugin global-shortcut de Tauri |
 | `pyperclip`/PyAutoGUI | `arboard` + `enigo` |
 | `config.ini` junto al ejecutable | JSON en el directorio de configuración del usuario |
-| API key en texto plano | No se requiere API key |
+| API key en texto plano | Whisper local sin clave o clave Groq sólo en memoria |
 | PyInstaller sólo Windows | Instaladores Tauri para macOS y Windows |
 
 ## Interacción compacta
 
-La interfaz 0.2 usa una barra flotante siempre visible y un icono en la bandeja del sistema. Durante la grabación procesa vistas de los últimos segundos y muestra texto parcial; al detenerse vuelve a transcribir el audio completo para obtener el resultado definitivo.
+La interfaz 0.2 usa un dock flotante de 400 × 96, colocado inicialmente sobre la barra de tareas, movible y con icono en la bandeja del sistema. Durante la grabación procesa vistas de los últimos segundos y muestra texto parcial; al detenerse vuelve a transcribir el audio completo para obtener el resultado definitivo.
+
+Whisper Tiny sigue siendo el motor local predeterminado. El usuario puede activar Groq `whisper-large-v3-turbo` para conseguir menor latencia mediante una API compatible con Whisper. Esa elección es explícita porque implica enviar el audio al servicio online.
 
 ## Datos que no se migran
 

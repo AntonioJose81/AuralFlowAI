@@ -8,6 +8,8 @@ pub enum AuralFlowError {
     Model(String),
     #[error("Transcripción: {0}")]
     Transcription(String),
+    #[error("Servicio online: {0}")]
+    Online(String),
     #[error("Configuración: {0}")]
     Config(String),
     #[error("Portapapeles: {0}")]

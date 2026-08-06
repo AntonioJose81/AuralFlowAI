@@ -1,15 +1,16 @@
 # AuralFlow
 
-AuralFlow convierte voz en texto de forma local y pega el resultado en la aplicación activa. Esta versión reemplaza el prototipo Python/Gemini por una aplicación de escritorio Tauri 2 con núcleo Rust y `whisper.cpp`.
+AuralFlow convierte voz en texto y pega el resultado en la aplicación activa. Esta versión reemplaza el prototipo Python/Gemini por una aplicación de escritorio Tauri 2 con núcleo Rust, Whisper local y un modo online opcional mediante Groq.
 
 ## Qué cambia en la versión 0.2
 
-- La transcripción se ejecuta en el dispositivo: no requiere API key ni sube el audio.
+- La transcripción local se ejecuta en el dispositivo: no requiere API key ni sube el audio.
+- El modo Groq opcional usa `whisper-large-v3-turbo` para reducir la latencia; su clave sólo se conserva en memoria durante la sesión.
 - Funciona con modelos Whisper multilingües cuantizados.
 - Captura el micrófono en memoria, mezcla canales y remuestrea a 16 kHz.
 - Usa un atajo global configurable.
 - Muestra texto parcial mientras se habla y reutiliza el modelo cargado en memoria.
-- Funciona como una barra flotante compacta con acceso desde la bandeja del sistema.
+- Funciona como un dock de 400 × 96, aparece sobre la barra de tareas, se puede mover y recuerda su posición.
 - Guarda configuración y modelos en los directorios de usuario del sistema.
 - Genera `.app`/`.dmg` en macOS y `.msi`/NSIS en Windows.
 - Separa interfaz, audio, modelos, configuración, transcripción y pegado.
@@ -43,6 +44,8 @@ npm run tauri dev
 ```
 
 La primera vez, abre **Preferencias** desde el engranaje y descarga un modelo. `tiny-q5_1` es la opción recomendada para dictado en vivo; `base-q5_1` mejora la precisión si el equipo mantiene una latencia aceptable.
+
+Para usar el modo más rápido, crea una clave en [Groq Console](https://console.groq.com/keys), elige **Groq · online ultrarrápido** y pégala en Preferencias. La clave no se escribe en el archivo de configuración: hay que introducirla de nuevo al reiniciar AuralFlow. Las vistas previas online se actualizan cada seis segundos para respetar mejor los límites del plan gratuito.
 
 ## Pruebas y comprobaciones
 
@@ -80,8 +83,9 @@ Windows puede impedir el pegado en programas ejecutados como administrador cuand
 
 - El audio sólo existe en memoria durante la grabación y transcripción.
 - No se crean archivos WAV temporales.
-- No hay telemetría ni llamadas a servicios de IA.
-- La única descarga de red es el modelo solicitado por el usuario.
+- En modo local no hay telemetría ni llamadas a servicios de IA; la única descarga es el modelo solicitado.
+- En modo Groq, AuralFlow envía a la API de Groq fragmentos WAV de 16 kHz mientras se dicta y el audio completo al finalizar.
+- La clave de Groq sólo se mantiene en memoria y se elimina al cerrar la aplicación.
 
 ## Estructura
 
@@ -90,6 +94,7 @@ src/                         Interfaz web local
 src-tauri/src/audio.rs       Captura y remuestreo
 src-tauri/src/model.rs       Descarga y almacenamiento de modelos
 src-tauri/src/transcribe.rs  Inferencia Whisper
+src-tauri/src/online.rs      Transcripción opcional mediante Groq
 src-tauri/src/paste.rs       Portapapeles y pegado
 src-tauri/src/config.rs      Preferencias por usuario
 .github/workflows/           Verificación y builds de escritorio

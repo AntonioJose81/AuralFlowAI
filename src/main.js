@@ -1,17 +1,21 @@
 import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
-import { LogicalSize } from "@tauri-apps/api/dpi";
+import { LogicalPosition, LogicalSize, PhysicalPosition } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { register, unregister, isRegistered } from "@tauri-apps/plugin-global-shortcut";
 
 const windowHandle = getCurrentWindow();
-const COMPACT_HEIGHT = 176;
-const SETTINGS_HEIGHT = 570;
-const PREVIEW_INTERVAL_MS = 1800;
+const COMPACT_WIDTH = 400;
+const COMPACT_HEIGHT = 96;
+const SETTINGS_HEIGHT = 650;
+const LOCAL_PREVIEW_INTERVAL_MS = 1800;
+const ONLINE_PREVIEW_INTERVAL_MS = 6000;
+const POSITION_STORAGE_KEY = "auralflow-dock-position";
 
 const elements = {
   recordButton: document.querySelector("#record-button"),
+  dragHandle: document.querySelector("#drag-handle"),
   statusTitle: document.querySelector("#status-title"),
   statusDetail: document.querySelector("#status-detail"),
   statusDot: document.querySelector("#status-dot"),
@@ -21,6 +25,15 @@ const elements = {
   settingsButton: document.querySelector("#settings-button"),
   hideButton: document.querySelector("#hide-button"),
   settingsPanel: document.querySelector("#settings-panel"),
+  engine: document.querySelector("#engine"),
+  privacyPill: document.querySelector("#privacy-pill"),
+  groqSettings: document.querySelector("#groq-settings"),
+  groqApiKey: document.querySelector("#groq-api-key"),
+  groqKeyStatus: document.querySelector("#groq-key-status"),
+  clearGroqKey: document.querySelector("#clear-groq-key"),
+  localSettings: document.querySelector("#local-settings"),
+  modelActions: document.querySelector("#model-actions"),
+  modelProgress: document.querySelector("#model-progress"),
   modelName: document.querySelector("#model-name"),
   language: document.querySelector("#language"),
   hotkey: document.querySelector("#hotkey"),
@@ -40,6 +53,34 @@ let previewTimer = null;
 let currentHotkey = null;
 let lastTranscript = "";
 let preparedModel = null;
+let settingsOpen = false;
+let movingProgrammatically = false;
+let compactAnchorPosition = null;
+
+async function placeDock() {
+  await windowHandle.setSize(new LogicalSize(COMPACT_WIDTH, COMPACT_HEIGHT));
+  const saved = window.localStorage.getItem(POSITION_STORAGE_KEY);
+  if (saved) {
+    try {
+      const position = JSON.parse(saved);
+      if (Number.isFinite(position.x) && Number.isFinite(position.y)) {
+        await windowHandle.setPosition(new PhysicalPosition(position.x, position.y));
+        return;
+      }
+    } catch (_) {
+      window.localStorage.removeItem(POSITION_STORAGE_KEY);
+    }
+  }
+  const left = (window.screen.availLeft ?? 0) + window.screen.availWidth - COMPACT_WIDTH - 12;
+  const top = (window.screen.availTop ?? 0) + window.screen.availHeight - COMPACT_HEIGHT - 12;
+  await windowHandle.setPosition(new LogicalPosition(Math.max(0, left), Math.max(0, top)));
+}
+
+async function rememberPosition() {
+  if (movingProgrammatically || settingsOpen) return;
+  const position = await windowHandle.outerPosition();
+  window.localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify({ x: position.x, y: position.y }));
+}
 
 function setStatus(kind, title, detail) {
   elements.statusTitle.textContent = title;
@@ -69,12 +110,43 @@ function showToast(message, isError = false) {
 }
 
 async function setSettingsOpen(open) {
+  if (settingsOpen === open && elements.settingsPanel.hidden === !open) return;
+  const position = await windowHandle.outerPosition();
+  const scale = window.devicePixelRatio || 1;
+  const delta = (SETTINGS_HEIGHT - COMPACT_HEIGHT) * scale;
+  movingProgrammatically = true;
+  if (open) compactAnchorPosition = position;
+  settingsOpen = open;
   elements.settingsPanel.hidden = !open;
   elements.settingsButton.classList.toggle("active", open);
-  await windowHandle.setSize(new LogicalSize(520, open ? SETTINGS_HEIGHT : COMPACT_HEIGHT));
+  await windowHandle.setSize(new LogicalSize(COMPACT_WIDTH, open ? SETTINGS_HEIGHT : COMPACT_HEIGHT));
+  const nextPosition = open
+    ? new PhysicalPosition(position.x, Math.round(Math.max(0, position.y - delta)))
+    : compactAnchorPosition ?? new PhysicalPosition(position.x, Math.round(position.y + delta));
+  await windowHandle.setPosition(nextPosition);
+  if (!open) compactAnchorPosition = null;
+  movingProgrammatically = false;
+}
+
+async function updateEngineUi() {
+  const online = elements.engine.value === "groq";
+  elements.groqSettings.hidden = !online;
+  elements.localSettings.hidden = online;
+  elements.modelActions.hidden = online;
+  elements.modelProgress.hidden = online;
+  elements.privacyPill.textContent = online ? "Groq · online" : "Local · privado";
+  elements.privacyPill.classList.toggle("online", online);
+  if (online) {
+    const active = await invoke("groq_key_status");
+    elements.groqKeyStatus.textContent = active
+      ? "Clave activa en esta sesión. El audio se enviará a Groq."
+      : "Pega una clave. Solo vivirá en memoria durante esta sesión; no se guarda en disco.";
+    elements.clearGroqKey.disabled = !active;
+  }
 }
 
 async function refreshModelStatus() {
+  if (elements.engine.value === "groq") return true;
   const status = await invoke("model_status", { modelName: elements.modelName.value });
   elements.modelStatus.textContent = status.installed
     ? `${status.modelName} instalado`
@@ -120,7 +192,10 @@ async function updatePreview() {
 
 function startPreviewLoop() {
   window.clearInterval(previewTimer);
-  previewTimer = window.setInterval(updatePreview, PREVIEW_INTERVAL_MS);
+  const interval = elements.engine.value === "groq"
+    ? ONLINE_PREVIEW_INTERVAL_MS
+    : LOCAL_PREVIEW_INTERVAL_MS;
+  previewTimer = window.setInterval(updatePreview, interval);
 }
 
 function stopPreviewLoop() {
@@ -133,15 +208,23 @@ async function toggleRecording() {
   busy = true;
   try {
     if (!recording) {
-      const installed = await refreshModelStatus();
-      if (!installed) {
-        await setSettingsOpen(true);
-        throw new Error("Descarga primero un modelo local.");
+      if (elements.engine.value === "groq") {
+        if (!(await invoke("groq_key_status"))) {
+          await setSettingsOpen(true);
+          throw new Error("Añade una clave API de Groq para usar el modo online.");
+        }
+      } else {
+        const installed = await refreshModelStatus();
+        if (!installed) {
+          await setSettingsOpen(true);
+          throw new Error("Descarga primero un modelo local.");
+        }
       }
       const info = await invoke("start_recording");
       recording = true;
       elements.settingsButton.disabled = true;
-      setStatus("recording", "Escuchando", `${info.deviceName} · transcripción en vivo`);
+      const engineLabel = elements.engine.value === "groq" ? "Groq online" : "Whisper local";
+      setStatus("recording", "Escuchando", `${engineLabel} · ${info.deviceName}`);
       elements.transcript.textContent = "Habla con naturalidad…";
       elements.transcript.className = "transcript empty partial";
       startPreviewLoop();
@@ -168,10 +251,12 @@ async function toggleRecording() {
 
 async function loadSettings() {
   const settings = await invoke("load_settings");
+  elements.engine.value = settings.engine;
   elements.modelName.value = settings.modelName;
   elements.language.value = settings.language;
   elements.hotkey.value = settings.hotkey;
   elements.autoPaste.checked = settings.autoPaste;
+  await updateEngineUi();
   await setGlobalHotkey(settings.hotkey);
   await refreshModelStatus();
 }
@@ -179,6 +264,10 @@ async function loadSettings() {
 elements.recordButton.addEventListener("click", toggleRecording);
 elements.settingsButton.addEventListener("click", () => setSettingsOpen(elements.settingsPanel.hidden));
 elements.hideButton.addEventListener("click", () => windowHandle.hide());
+elements.dragHandle.addEventListener("mousedown", async (event) => {
+  if (event.button === 0) await windowHandle.startDragging();
+});
+elements.engine.addEventListener("change", updateEngineUi);
 elements.modelName.addEventListener("change", () => {
   preparedModel = null;
   refreshModelStatus();
@@ -195,21 +284,37 @@ elements.copyButton.addEventListener("click", async () => {
 
 elements.saveButton.addEventListener("click", async () => {
   const settings = {
+    engine: elements.engine.value,
     modelName: elements.modelName.value,
     language: elements.language.value,
     hotkey: elements.hotkey.value.trim(),
     autoPaste: elements.autoPaste.checked,
   };
   try {
+    const key = elements.groqApiKey.value.trim();
+    if (key) {
+      await invoke("set_groq_api_key", { apiKey: key });
+      elements.groqApiKey.value = "";
+    }
+    if (settings.engine === "groq" && !(await invoke("groq_key_status"))) {
+      throw new Error("Añade una clave API de Groq.");
+    }
     await invoke("save_settings", { settings });
     await setGlobalHotkey(settings.hotkey);
     preparedModel = null;
-    void warmModel(settings.modelName);
+    if (settings.engine === "local") void warmModel(settings.modelName);
     await setSettingsOpen(false);
     showToast("Preferencias guardadas.");
   } catch (error) {
     showToast(String(error), true);
   }
+});
+
+elements.clearGroqKey.addEventListener("click", async () => {
+  await invoke("clear_groq_api_key");
+  elements.groqApiKey.value = "";
+  await updateEngineUi();
+  showToast("Clave de Groq olvidada.");
 });
 
 elements.downloadButton.addEventListener("click", async () => {
@@ -235,8 +340,12 @@ await listen("model-download-progress", ({ payload }) => {
   elements.modelStatus.textContent = `Descargando… ${percent}%`;
 });
 
-setSettingsOpen(false).catch(() => {});
-loadSettings().catch((error) => {
+await windowHandle.onMoved(() => {
+  window.clearTimeout(rememberPosition.timeout);
+  rememberPosition.timeout = window.setTimeout(() => rememberPosition().catch(() => {}), 250);
+});
+
+placeDock().then(loadSettings).catch((error) => {
   setStatus("error", "Error de inicio", String(error));
   showToast(String(error), true);
 });

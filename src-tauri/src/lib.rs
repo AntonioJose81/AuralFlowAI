@@ -2,6 +2,7 @@ mod audio;
 mod config;
 mod error;
 mod model;
+mod online;
 mod paste;
 mod transcribe;
 
@@ -21,6 +22,7 @@ use tauri::{
 struct RuntimeState {
     recorder: Mutex<AudioRecorder>,
     transcriber: transcribe::Transcriber,
+    groq_api_key: Mutex<Option<String>>,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +46,40 @@ fn load_settings(app: AppHandle) -> std::result::Result<Settings, String> {
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: Settings) -> std::result::Result<(), String> {
     config::save(&app, &settings).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_groq_api_key(
+    state: State<'_, RuntimeState>,
+    api_key: String,
+) -> std::result::Result<(), String> {
+    let key = api_key.trim();
+    if key.len() < 20 || key.len() > 300 {
+        return Err("La clave API de Groq no parece válida.".into());
+    }
+    *state
+        .groq_api_key
+        .lock()
+        .map_err(|_| "Clave API: estado bloqueado".to_string())? = Some(key.to_owned());
+    Ok(())
+}
+
+#[tauri::command]
+fn groq_key_status(state: State<'_, RuntimeState>) -> std::result::Result<bool, String> {
+    Ok(state
+        .groq_api_key
+        .lock()
+        .map_err(|_| "Clave API: estado bloqueado".to_string())?
+        .is_some())
+}
+
+#[tauri::command]
+fn clear_groq_api_key(state: State<'_, RuntimeState>) -> std::result::Result<(), String> {
+    *state
+        .groq_api_key
+        .lock()
+        .map_err(|_| "Clave API: estado bloqueado".to_string())? = None;
+    Ok(())
 }
 
 #[tauri::command]
@@ -90,11 +126,13 @@ async fn preview_transcription(
     app: AppHandle,
     state: State<'_, RuntimeState>,
 ) -> std::result::Result<PreviewResult, String> {
+    let settings = config::load(&app).map_err(|error| error.to_string())?;
+    let preview_seconds = if settings.engine == "groq" { 9 } else { 12 };
     let audio = state
         .recorder
         .lock()
         .map_err(|_| "Audio: estado bloqueado".to_string())?
-        .snapshot_recent(12)
+        .snapshot_recent(preview_seconds)
         .map_err(|error| error.to_string())?;
     if audio.samples.len() < 16_000 {
         return Ok(PreviewResult {
@@ -102,7 +140,19 @@ async fn preview_transcription(
         });
     }
 
-    let settings = config::load(&app).map_err(|error| error.to_string())?;
+    if settings.engine == "groq" {
+        let api_key = state
+            .groq_api_key
+            .lock()
+            .map_err(|_| "Clave API: estado bloqueado".to_string())?
+            .clone()
+            .ok_or_else(|| "Servicio online: falta la clave API de Groq".to_string())?;
+        let text = online::transcribe_groq(&audio.samples, &settings.language, &api_key)
+            .await
+            .map_err(|error| error.to_string())?;
+        return Ok(PreviewResult { text });
+    }
+
     let model_path = model::model_path(&app, &settings.model_name).map_err(|error| error.to_string())?;
     let language = settings.language;
     let transcriber = state.transcriber.clone();
@@ -131,11 +181,44 @@ async fn stop_and_transcribe(
         .stop()
         .map_err(|error| error.to_string())?;
     let settings = config::load(&app).map_err(|error| error.to_string())?;
-    let model_path = model::model_path(&app, &settings.model_name).map_err(|error| error.to_string())?;
     let language = settings.language.clone();
     let auto_paste = settings.auto_paste;
-    let transcriber = state.transcriber.clone();
     let started = Instant::now();
+
+    if settings.engine == "groq" {
+        let api_key = state
+            .groq_api_key
+            .lock()
+            .map_err(|_| "Clave API: estado bloqueado".to_string())?
+            .clone()
+            .ok_or_else(|| "Servicio online: falta la clave API de Groq".to_string())?;
+        let text = online::transcribe_groq(&audio.samples, &language, &api_key)
+            .await
+            .map_err(|error| error.to_string())?;
+        let paste_text = text.clone();
+        let (pasted, warning) = if auto_paste {
+            tauri::async_runtime::spawn_blocking(move || match paste::paste_text(&paste_text) {
+                Ok(()) => (true, None),
+                Err(error) => (
+                    false,
+                    Some(format!("El texto se transcribió, pero no se pudo pegar: {error}")),
+                ),
+            })
+            .await
+            .map_err(|error| format!("Portapapeles: el proceso terminó inesperadamente: {error}"))?
+        } else {
+            (false, None)
+        };
+        return Ok(TranscriptResult {
+            text,
+            elapsed_ms: started.elapsed().as_millis(),
+            pasted,
+            warning,
+        });
+    }
+
+    let model_path = model::model_path(&app, &settings.model_name).map_err(|error| error.to_string())?;
+    let transcriber = state.transcriber.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
         let text = transcriber
@@ -213,6 +296,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
+            set_groq_api_key,
+            groq_key_status,
+            clear_groq_api_key,
             model_status,
             download_model,
             prepare_model,
