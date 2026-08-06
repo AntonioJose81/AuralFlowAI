@@ -1,22 +1,26 @@
 import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
-import {
-  register,
-  unregister,
-  isRegistered,
-} from "@tauri-apps/plugin-global-shortcut";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { register, unregister, isRegistered } from "@tauri-apps/plugin-global-shortcut";
+
+const windowHandle = getCurrentWindow();
+const COMPACT_HEIGHT = 176;
+const SETTINGS_HEIGHT = 570;
+const PREVIEW_INTERVAL_MS = 1800;
 
 const elements = {
   recordButton: document.querySelector("#record-button"),
-  recordLabel: document.querySelector("#record-label"),
-  statusTitle: document.querySelector(".status-title"),
+  statusTitle: document.querySelector("#status-title"),
   statusDetail: document.querySelector("#status-detail"),
   statusDot: document.querySelector("#status-dot"),
   meter: document.querySelector("#meter"),
   transcript: document.querySelector("#transcript"),
   copyButton: document.querySelector("#copy-button"),
-  shortcutHint: document.querySelector("#shortcut-hint"),
+  settingsButton: document.querySelector("#settings-button"),
+  hideButton: document.querySelector("#hide-button"),
+  settingsPanel: document.querySelector("#settings-panel"),
   modelName: document.querySelector("#model-name"),
   language: document.querySelector("#language"),
   hotkey: document.querySelector("#hotkey"),
@@ -31,8 +35,11 @@ const elements = {
 
 let recording = false;
 let busy = false;
+let previewInFlight = false;
+let previewTimer = null;
 let currentHotkey = null;
 let lastTranscript = "";
+let preparedModel = null;
 
 function setStatus(kind, title, detail) {
   elements.statusTitle.textContent = title;
@@ -41,8 +48,16 @@ function setStatus(kind, title, detail) {
   elements.meter.classList.toggle("active", kind === "recording");
   elements.recordButton.classList.toggle("recording", kind === "recording");
   elements.recordButton.disabled = kind === "processing";
-  elements.recordLabel.textContent =
-    kind === "recording" ? "Detener y transcribir" : "Empezar a grabar";
+  elements.recordButton.setAttribute("aria-label", kind === "recording" ? "Detener y transcribir" : "Empezar a grabar");
+}
+
+function showTranscript(text, partial = false) {
+  if (!text) return;
+  lastTranscript = text;
+  elements.transcript.textContent = text;
+  elements.transcript.classList.remove("empty");
+  elements.transcript.classList.toggle("partial", partial);
+  elements.copyButton.disabled = false;
 }
 
 function showToast(message, isError = false) {
@@ -50,29 +65,67 @@ function showToast(message, isError = false) {
   elements.toast.classList.toggle("error", isError);
   elements.toast.classList.add("visible");
   window.clearTimeout(showToast.timeout);
-  showToast.timeout = window.setTimeout(() => elements.toast.classList.remove("visible"), 3200);
+  showToast.timeout = window.setTimeout(() => elements.toast.classList.remove("visible"), 3000);
+}
+
+async function setSettingsOpen(open) {
+  elements.settingsPanel.hidden = !open;
+  elements.settingsButton.classList.toggle("active", open);
+  await windowHandle.setSize(new LogicalSize(520, open ? SETTINGS_HEIGHT : COMPACT_HEIGHT));
 }
 
 async function refreshModelStatus() {
   const status = await invoke("model_status", { modelName: elements.modelName.value });
   elements.modelStatus.textContent = status.installed
-    ? `Modelo ${status.modelName} instalado`
-    : `Falta el modelo ${status.modelName}`;
+    ? `${status.modelName} instalado`
+    : `Falta ${status.modelName}`;
   elements.modelStatus.classList.toggle("ok", status.installed);
   elements.modelPath.textContent = status.path;
-  elements.downloadButton.textContent = status.installed ? "Volver a descargar" : "Descargar modelo";
+  elements.downloadButton.textContent = status.installed ? "Descargar de nuevo" : "Descargar";
+  if (status.installed) void warmModel(status.modelName);
   return status.installed;
 }
 
-async function setGlobalHotkey(hotkey) {
-  if (currentHotkey && (await isRegistered(currentHotkey))) {
-    await unregister(currentHotkey);
+async function warmModel(modelName) {
+  if (preparedModel === modelName) return;
+  try {
+    await invoke("prepare_model", { modelName });
+    preparedModel = modelName;
+  } catch (error) {
+    if (!recording) showToast(String(error), true);
   }
+}
+
+async function setGlobalHotkey(hotkey) {
+  if (currentHotkey && (await isRegistered(currentHotkey))) await unregister(currentHotkey);
   await register(hotkey, async (event) => {
     if (event.state === "Released") await toggleRecording();
   });
   currentHotkey = hotkey;
-  elements.shortcutHint.textContent = `Atajo: ${hotkey}`;
+  if (!recording) setStatus("ready", "Listo", hotkey);
+}
+
+async function updatePreview() {
+  if (!recording || previewInFlight) return;
+  previewInFlight = true;
+  try {
+    const result = await invoke("preview_transcription");
+    if (recording && result.text) showTranscript(result.text, true);
+  } catch (_) {
+    // La transcripción final sigue siendo la fuente de verdad.
+  } finally {
+    previewInFlight = false;
+  }
+}
+
+function startPreviewLoop() {
+  window.clearInterval(previewTimer);
+  previewTimer = window.setInterval(updatePreview, PREVIEW_INTERVAL_MS);
+}
+
+function stopPreviewLoop() {
+  window.clearInterval(previewTimer);
+  previewTimer = null;
 }
 
 async function toggleRecording() {
@@ -82,30 +135,34 @@ async function toggleRecording() {
     if (!recording) {
       const installed = await refreshModelStatus();
       if (!installed) {
-        document.querySelector(".settings-panel").open = true;
-        throw new Error("Descarga primero el modelo de transcripción.");
+        await setSettingsOpen(true);
+        throw new Error("Descarga primero un modelo local.");
       }
       const info = await invoke("start_recording");
       recording = true;
-      setStatus("recording", "Grabando…", `${info.deviceName} · ${info.sampleRate} Hz`);
+      elements.settingsButton.disabled = true;
+      setStatus("recording", "Escuchando", `${info.deviceName} · transcripción en vivo`);
+      elements.transcript.textContent = "Habla con naturalidad…";
+      elements.transcript.className = "transcript empty partial";
+      startPreviewLoop();
     } else {
       recording = false;
-      setStatus("processing", "Transcribiendo…", "El audio se procesa localmente en este equipo.");
+      stopPreviewLoop();
+      setStatus("processing", "Terminando", "Preparando el texto final…");
       const result = await invoke("stop_and_transcribe");
-      lastTranscript = result.text;
-      elements.transcript.textContent = result.text;
-      elements.transcript.classList.remove("empty");
-      elements.copyButton.disabled = false;
-      const pasteMessage = result.pasted ? " y pegado" : "";
-      setStatus("ready", "Transcripción lista", `Procesado en ${result.elapsedMs} ms${pasteMessage}.`);
+      showTranscript(result.text, false);
+      const pasteMessage = result.pasted ? " · pegado" : "";
+      setStatus("ready", "Listo", `${result.elapsedMs} ms${pasteMessage}`);
       if (result.warning) showToast(result.warning, true);
     }
   } catch (error) {
     recording = false;
+    stopPreviewLoop();
     setStatus("error", "No se pudo completar", String(error));
     showToast(String(error), true);
   } finally {
     busy = false;
+    elements.settingsButton.disabled = recording;
   }
 }
 
@@ -120,16 +177,22 @@ async function loadSettings() {
 }
 
 elements.recordButton.addEventListener("click", toggleRecording);
-elements.modelName.addEventListener("change", refreshModelStatus);
+elements.settingsButton.addEventListener("click", () => setSettingsOpen(elements.settingsPanel.hidden));
+elements.hideButton.addEventListener("click", () => windowHandle.hide());
+elements.modelName.addEventListener("change", () => {
+  preparedModel = null;
+  refreshModelStatus();
+});
 
 elements.copyButton.addEventListener("click", async () => {
   try {
     await invoke("copy_text", { text: lastTranscript });
-    showToast("Texto copiado al portapapeles.");
+    showToast("Texto copiado.");
   } catch (error) {
     showToast(String(error), true);
   }
 });
+
 elements.saveButton.addEventListener("click", async () => {
   const settings = {
     modelName: elements.modelName.value,
@@ -140,6 +203,9 @@ elements.saveButton.addEventListener("click", async () => {
   try {
     await invoke("save_settings", { settings });
     await setGlobalHotkey(settings.hotkey);
+    preparedModel = null;
+    void warmModel(settings.modelName);
+    await setSettingsOpen(false);
     showToast("Preferencias guardadas.");
   } catch (error) {
     showToast(String(error), true);
@@ -151,8 +217,9 @@ elements.downloadButton.addEventListener("click", async () => {
   elements.downloadProgress.style.width = "2%";
   try {
     await invoke("download_model", { modelName: elements.modelName.value });
+    preparedModel = null;
     await refreshModelStatus();
-    showToast("Modelo descargado correctamente.");
+    showToast("Modelo descargado.");
   } catch (error) {
     showToast(String(error), true);
   } finally {
@@ -168,6 +235,7 @@ await listen("model-download-progress", ({ payload }) => {
   elements.modelStatus.textContent = `Descargando… ${percent}%`;
 });
 
+setSettingsOpen(false).catch(() => {});
 loadSettings().catch((error) => {
   setStatus("error", "Error de inicio", String(error));
   showToast(String(error), true);

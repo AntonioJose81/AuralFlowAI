@@ -107,6 +107,24 @@ impl AudioRecorder {
         let samples = resample_linear(&mono, active.source_rate, WHISPER_SAMPLE_RATE);
         Ok(RecordedAudio { samples })
     }
+
+    pub fn snapshot_recent(&self, seconds: usize) -> Result<RecordedAudio> {
+        let active = self
+            .active
+            .as_ref()
+            .ok_or_else(|| AuralFlowError::Audio("no hay una grabación activa".into()))?;
+        let interleaved = active
+            .samples
+            .lock()
+            .map_err(|_| AuralFlowError::Audio("buffer de audio bloqueado".into()))?;
+        let max_samples =
+            active.source_rate as usize * active.channels as usize * seconds.max(1);
+        let mut start = interleaved.len().saturating_sub(max_samples);
+        start -= start % active.channels as usize;
+        let mono = downmix_to_mono(&interleaved[start..], active.channels as usize);
+        let samples = resample_linear(&mono, active.source_rate, WHISPER_SAMPLE_RATE);
+        Ok(RecordedAudio { samples })
+    }
 }
 
 fn build_stream<T>(

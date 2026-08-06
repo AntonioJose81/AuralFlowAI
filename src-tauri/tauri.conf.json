@@ -17,14 +17,17 @@
       {
         "label": "main",
         "title": "AuralFlow",
-        "width": 720,
-        "height": 820,
-        "minWidth": 380,
-        "minHeight": 620,
-        "resizable": true,
+        "width": 520,
+        "height": 176,
+        "minWidth": 520,
+        "minHeight": 176,
+        "resizable": false,
         "center": true,
-        "decorations": true,
-        "transparent": false
+        "decorations": false,
+        "transparent": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": false,
+        "shadow": true
       }
     ]
   },

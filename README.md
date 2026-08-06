@@ -8,6 +8,8 @@ AuralFlow convierte voz en texto de forma local y pega el resultado en la aplica
 - Funciona con modelos Whisper multilingües cuantizados.
 - Captura el micrófono en memoria, mezcla canales y remuestrea a 16 kHz.
 - Usa un atajo global configurable.
+- Muestra texto parcial mientras se habla y reutiliza el modelo cargado en memoria.
+- Funciona como una barra flotante compacta con acceso desde la bandeja del sistema.
 - Guarda configuración y modelos en los directorios de usuario del sistema.
 - Genera `.app`/`.dmg` en macOS y `.msi`/NSIS en Windows.
 - Separa interfaz, audio, modelos, configuración, transcripción y pegado.
@@ -16,8 +18,9 @@ AuralFlow convierte voz en texto de forma local y pega el resultado en la aplica
 
 | Modelo | Uso recomendado |
 | --- | --- |
-| `base-q5_1` | Equipos modestos; menor descarga y mayor velocidad |
-| `small-q5_1` | Opción predeterminada; buen equilibrio para español |
+| `tiny-q5_1` | Opción predeterminada; máxima velocidad y sólo unos 32 MB |
+| `base-q5_1` | Buen equilibrio entre velocidad y precisión |
+| `small-q5_1` | Más precisión, con mayor latencia |
 | `large-v3-turbo-q5_0` | Equipos potentes; mayor precisión |
 
 Los modelos se descargan bajo demanda desde el repositorio oficial usado por `whisper.cpp`. AuralFlow nunca incluye modelos dentro del repositorio Git.
@@ -39,7 +42,7 @@ npm install
 npm run tauri dev
 ```
 
-La primera vez, abre **Modelo y comportamiento** y descarga un modelo. `small-q5_1` es la opción recomendada.
+La primera vez, abre **Preferencias** desde el engranaje y descarga un modelo. `tiny-q5_1` es la opción recomendada para dictado en vivo; `base-q5_1` mejora la precisión si el equipo mantiene una latencia aceptable.
 
 ## Pruebas y comprobaciones
 
@@ -61,7 +64,7 @@ npm run tauri build
 
 - Windows produce instaladores MSI y NSIS.
 - macOS produce un paquete `.app` y un DMG.
-- El workflow `build-desktop.yml` construye ambos sistemas manualmente desde GitHub Actions.
+- El workflow `build-desktop.yml` construye ambos sistemas desde GitHub Actions.
 
 ## Permisos
 

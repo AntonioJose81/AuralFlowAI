@@ -17,7 +17,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            model_name: "small-q5_1".into(),
+            model_name: "tiny-q5_1".into(),
             language: "es".into(),
             hotkey: "CommandOrControl+Shift+Space".into(),
             auto_paste: true,

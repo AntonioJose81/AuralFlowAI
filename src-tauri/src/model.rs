@@ -8,7 +8,12 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use crate::error::{AuralFlowError, Result};
 
 const MODEL_BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
-const SUPPORTED_MODELS: &[&str] = &["base-q5_1", "small-q5_1", "large-v3-turbo-q5_0"];
+const SUPPORTED_MODELS: &[&str] = &[
+    "tiny-q5_1",
+    "base-q5_1",
+    "small-q5_1",
+    "large-v3-turbo-q5_0",
+];
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

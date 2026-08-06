@@ -13,6 +13,10 @@ El archivo `app.py` original servía para validar la idea, pero no se utiliza en
 | API key en texto plano | No se requiere API key |
 | PyInstaller sólo Windows | Instaladores Tauri para macOS y Windows |
 
+## Interacción compacta
+
+La interfaz 0.2 usa una barra flotante siempre visible y un icono en la bandeja del sistema. Durante la grabación procesa vistas de los últimos segundos y muestra texto parcial; al detenerse vuelve a transcribir el audio completo para obtener el resultado definitivo.
+
 ## Datos que no se migran
 
 - La antigua API key de Gemini no se copia ni se lee.
