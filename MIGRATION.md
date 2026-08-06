@@ -19,6 +19,8 @@ La interfaz 0.2 usa un dock flotante de 400 × 96, colocado inicialmente sobre l
 
 Whisper Tiny sigue siendo el motor local predeterminado. El usuario puede activar Groq `whisper-large-v3-turbo` para conseguir menor latencia mediante una API compatible con Whisper. Esa elección es explícita porque implica enviar el audio al servicio online.
 
+En macOS, Enigo está fijado temporalmente al commit `c041408b4f9f0b96bf2c10d79f782ede146b5634`. La versión publicada 0.6.1 consultaba la distribución del teclado fuera del hilo principal y podía cerrar AuralFlow al ejecutar `⌘V`; el commit fijado deriva esa consulta al hilo principal.
+
 ## Datos que no se migran
 
 - La antigua API key de Gemini no se copia ni se lee.

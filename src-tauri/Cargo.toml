@@ -1,6 +1,6 @@
 [package]
 name = "auralflow"
-version = "0.2.1"
+version = "0.2.2"
 description = "Dictado local y privado para macOS y Windows"
 authors = ["AntonioJose81"]
 edition = "2021"
@@ -40,3 +40,9 @@ lto = true
 opt-level = "s"
 panic = "abort"
 strip = true
+
+# Enigo 0.6.1 llama a TISGetInputSourceProperty fuera del hilo principal en
+# macOS y provoca EXC_BREAKPOINT con Tauri. Este commit aplica la corrección
+# oficial de enigo-rs/enigo#510 hasta que se publique una versión estable.
+[patch.crates-io]
+enigo = { git = "https://github.com/enigo-rs/enigo", rev = "c041408b4f9f0b96bf2c10d79f782ede146b5634" }

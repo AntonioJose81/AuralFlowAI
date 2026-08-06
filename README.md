@@ -102,4 +102,6 @@ src-tauri/src/config.rs      Preferencias por usuario
 
 ## Estado conocido
 
-Ésta es la primera base de la migración nativa. Antes de publicar una release deben validarse físicamente el micrófono, el permiso de Accesibilidad y el pegado en un Mac y un PC. También debe decidirse y corregirse la licencia del repositorio: la licencia Creative Commons heredada no se modifica automáticamente en esta migración.
+La versión 0.2.2 fija Enigo al commit `c041408b4f9f0b96bf2c10d79f782ede146b5634`, que ejecuta la consulta TIS del teclado en el hilo principal de macOS. Esto evita el `EXC_BREAKPOINT` que se producía al simular `⌘V` desde un trabajador Tokio.
+
+Antes de publicar una release pública deben validarse físicamente el micrófono, el permiso de Accesibilidad y el pegado en un Mac y un PC. La compilación de desarrollo de GitHub Actions no está firmada ni notarizada con un certificado Apple Developer ID; para distribuirla sin avisos de Gatekeeper hacen falta las credenciales privadas del titular. También debe decidirse y corregirse la licencia del repositorio: la licencia Creative Commons heredada no se modifica automáticamente en esta migración.
