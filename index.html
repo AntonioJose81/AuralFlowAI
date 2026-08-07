@@ -8,26 +8,29 @@
   </head>
   <body>
     <main class="app-shell">
-      <section class="dictation-bar">
-        <button id="drag-handle" class="drag-handle" type="button" title="Arrastrar AuralFlow" aria-label="Mover AuralFlow">⠿</button>
-        <button id="record-button" class="record-button" type="button" aria-label="Empezar a grabar">
+      <section class="dictation-bar" aria-label="AuralFlow">
+        <button id="record-button" class="record-button" type="button" aria-label="Empezar a grabar" title="Hablar">
           <span class="record-core"></span>
         </button>
 
-        <div class="flow" data-tauri-drag-region>
-          <div class="status-line" data-tauri-drag-region>
-            <span id="status-dot" class="status-dot" aria-hidden="true"></span>
-            <strong id="status-title">Listo</strong>
-            <span id="status-detail">Pulsa o usa el atajo</span>
+        <div id="drag-handle" class="voice-surface" data-tauri-drag-region>
+          <div id="meter" class="meter" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
           </div>
-          <div id="meter" class="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-          <p id="transcript" class="transcript empty" aria-live="polite">Tu voz aparecerá aquí mientras hablas.</p>
+          <div class="voice-copy" data-tauri-drag-region>
+            <div class="status-line" data-tauri-drag-region>
+              <span id="status-dot" class="status-dot" aria-hidden="true"></span>
+              <strong id="status-title">Listo</strong>
+              <span id="status-detail">Mantén el atajo para hablar</span>
+            </div>
+            <p id="transcript" class="transcript empty" aria-live="polite">Tu voz aparecerá aquí.</p>
+          </div>
         </div>
 
         <nav class="window-actions" aria-label="Acciones">
-          <button id="copy-button" class="icon-button" type="button" title="Copiar" disabled>⧉</button>
-          <button id="settings-button" class="icon-button" type="button" title="Preferencias">⚙</button>
-          <button id="hide-button" class="icon-button" type="button" title="Ocultar en la bandeja">−</button>
+          <button id="copy-button" class="icon-button" type="button" title="Copiar" aria-label="Copiar texto" disabled>⧉</button>
+          <button id="settings-button" class="icon-button" type="button" title="Preferencias" aria-label="Abrir preferencias">⚙</button>
+          <button id="hide-button" class="icon-button" type="button" title="Ocultar" aria-label="Ocultar AuralFlow">−</button>
         </nav>
       </section>
 
@@ -54,7 +57,7 @@
               <input id="groq-api-key" type="password" autocomplete="off" placeholder="gsk_…" />
             </label>
             <button id="clear-groq-key" class="text-button" type="button">Olvidar clave</button>
-            <small id="groq-key-status">La clave se guarda en el llavero seguro del sistema. El audio se envía a Groq.</small>
+            <small id="groq-key-status">La clave se guarda en el llavero seguro del sistema.</small>
           </div>
           <div id="local-settings" class="local-settings wide">
             <label>
@@ -79,6 +82,15 @@
             Atajo global
             <input id="hotkey" value="CommandOrControl+Shift+Space" />
           </label>
+          <label class="switch-row wide">
+            <span><strong>Mantener para hablar</strong><small>Empieza al pulsar y transcribe al soltar.</small></span>
+            <input id="hold-to-talk" type="checkbox" checked />
+          </label>
+          <label id="fn-hold-row" class="switch-row wide" hidden>
+            <span><strong>Tecla Fn en macOS</strong><small>Como Wispr Flow: mantén Fn, habla y suelta.</small></span>
+            <input id="fn-hold" type="checkbox" checked />
+          </label>
+          <p id="platform-hint" class="platform-hint wide"></p>
           <label class="switch-row wide">
             <span><strong>Pegar al terminar</strong><small>Usa ⌘V o Ctrl+V en la aplicación activa.</small></span>
             <input id="auto-paste" type="checkbox" checked />

@@ -5,6 +5,8 @@ mod error;
 mod model;
 mod online;
 mod paste;
+#[cfg(target_os = "macos")]
+mod push_to_talk;
 mod transcribe;
 
 use std::{sync::Mutex, time::Instant};
@@ -140,6 +142,16 @@ fn start_recording(state: State<'_, RuntimeState>) -> std::result::Result<AudioI
 }
 
 #[tauri::command]
+fn audio_level(state: State<'_, RuntimeState>) -> std::result::Result<f32, String> {
+    state
+        .recorder
+        .lock()
+        .map_err(|_| "Audio: estado bloqueado".to_string())?
+        .recent_level()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 async fn preview_transcription(
     app: AppHandle,
     state: State<'_, RuntimeState>,
@@ -167,7 +179,8 @@ async fn preview_transcription(
         return Ok(PreviewResult { text });
     }
 
-    let model_path = model::model_path(&app, &settings.model_name).map_err(|error| error.to_string())?;
+    let model_path =
+        model::model_path(&app, &settings.model_name).map_err(|error| error.to_string())?;
     let language = settings.language;
     let transcriber = state.transcriber.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -211,7 +224,9 @@ async fn stop_and_transcribe(
                 Ok(()) => (true, None),
                 Err(error) => (
                     false,
-                    Some(format!("El texto se transcribió, pero no se pudo pegar: {error}")),
+                    Some(format!(
+                        "El texto se transcribió, pero no se pudo pegar: {error}"
+                    )),
                 ),
             })
             .await
@@ -227,7 +242,8 @@ async fn stop_and_transcribe(
         });
     }
 
-    let model_path = model::model_path(&app, &settings.model_name).map_err(|error| error.to_string())?;
+    let model_path =
+        model::model_path(&app, &settings.model_name).map_err(|error| error.to_string())?;
     let transcriber = state.transcriber.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
@@ -239,7 +255,9 @@ async fn stop_and_transcribe(
                 Ok(()) => (true, None),
                 Err(error) => (
                     false,
-                    Some(format!("El texto se transcribió, pero no se pudo pegar: {error}")),
+                    Some(format!(
+                        "El texto se transcribió, pero no se pudo pegar: {error}"
+                    )),
                 ),
             }
         } else {
@@ -269,6 +287,8 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(RuntimeState::default())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            push_to_talk::start_fn_listener(app.handle().clone());
             if let Some(window) = app.get_webview_window("main") {
                 let window_to_hide = window.clone();
                 window.on_window_event(move |event| {
@@ -319,6 +339,7 @@ pub fn run() {
             download_model,
             prepare_model,
             start_recording,
+            audio_level,
             preview_transcription,
             stop_and_transcribe,
             copy_text,

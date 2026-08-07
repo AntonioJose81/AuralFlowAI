@@ -6,12 +6,16 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { register, unregister, isRegistered } from "@tauri-apps/plugin-global-shortcut";
 
 const windowHandle = getCurrentWindow();
-const COMPACT_WIDTH = 400;
-const COMPACT_HEIGHT = 96;
-const SETTINGS_HEIGHT = 650;
+const COMPACT_WIDTH = 336;
+const COMPACT_HEIGHT = 58;
+const SETTINGS_WIDTH = 380;
+const SETTINGS_HEIGHT = 628;
 const LOCAL_PREVIEW_INTERVAL_MS = 1800;
 const ONLINE_PREVIEW_INTERVAL_MS = 6000;
-const POSITION_STORAGE_KEY = "auralflow-dock-position";
+const AUDIO_LEVEL_INTERVAL_MS = 55;
+const POSITION_STORAGE_KEY = "auralflow-dock-position-v3";
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+const METER_WEIGHTS = [0.54, 0.78, 0.94, 0.68, 1, 0.74, 0.9, 0.66, 0.5];
 
 const elements = {
   recordButton: document.querySelector("#record-button"),
@@ -37,6 +41,10 @@ const elements = {
   modelName: document.querySelector("#model-name"),
   language: document.querySelector("#language"),
   hotkey: document.querySelector("#hotkey"),
+  holdToTalk: document.querySelector("#hold-to-talk"),
+  fnHold: document.querySelector("#fn-hold"),
+  fnHoldRow: document.querySelector("#fn-hold-row"),
+  platformHint: document.querySelector("#platform-hint"),
   autoPaste: document.querySelector("#auto-paste"),
   modelStatus: document.querySelector("#model-status"),
   modelPath: document.querySelector("#model-path"),
@@ -50,12 +58,19 @@ let recording = false;
 let busy = false;
 let previewInFlight = false;
 let previewTimer = null;
+let audioLevelTimer = null;
+let audioLevelInFlight = false;
+let smoothedLevel = 0;
 let currentHotkey = null;
 let lastTranscript = "";
 let preparedModel = null;
 let settingsOpen = false;
 let movingProgrammatically = false;
 let compactAnchorPosition = null;
+let holdToTalkMode = true;
+let fnHoldEnabled = true;
+let holdRequested = false;
+let shortcutDown = false;
 
 async function placeDock() {
   await windowHandle.setSize(new LogicalSize(COMPACT_WIDTH, COMPACT_HEIGHT));
@@ -81,8 +96,8 @@ async function placeDock() {
     } catch (_) {}
     window.localStorage.removeItem(POSITION_STORAGE_KEY);
   }
-  const left = (window.screen.availLeft ?? 0) + window.screen.availWidth - COMPACT_WIDTH - 12;
-  const top = (window.screen.availTop ?? 0) + window.screen.availHeight - COMPACT_HEIGHT - 12;
+  const left = (window.screen.availLeft ?? 0) + (window.screen.availWidth - COMPACT_WIDTH) / 2;
+  const top = (window.screen.availTop ?? 0) + window.screen.availHeight - COMPACT_HEIGHT - 8;
   await windowHandle.setPosition(new LogicalPosition(Math.max(0, left), Math.max(0, top)));
 }
 
@@ -96,7 +111,6 @@ function setStatus(kind, title, detail) {
   elements.statusTitle.textContent = title;
   elements.statusDetail.textContent = detail;
   elements.statusDot.dataset.state = kind;
-  elements.meter.classList.toggle("active", kind === "recording");
   elements.recordButton.classList.toggle("recording", kind === "recording");
   elements.recordButton.disabled = kind === "processing";
   elements.recordButton.setAttribute("aria-label", kind === "recording" ? "Detener y transcribir" : "Empezar a grabar");
@@ -123,16 +137,17 @@ async function setSettingsOpen(open) {
   if (settingsOpen === open && elements.settingsPanel.hidden === !open) return;
   const position = await windowHandle.outerPosition();
   const scale = window.devicePixelRatio || 1;
-  const delta = (SETTINGS_HEIGHT - COMPACT_HEIGHT) * scale;
+  const deltaY = (SETTINGS_HEIGHT - COMPACT_HEIGHT) * scale;
+  const deltaX = (SETTINGS_WIDTH - COMPACT_WIDTH) * scale;
   movingProgrammatically = true;
   if (open) compactAnchorPosition = position;
   settingsOpen = open;
   elements.settingsPanel.hidden = !open;
   elements.settingsButton.classList.toggle("active", open);
-  await windowHandle.setSize(new LogicalSize(COMPACT_WIDTH, open ? SETTINGS_HEIGHT : COMPACT_HEIGHT));
+  await windowHandle.setSize(new LogicalSize(open ? SETTINGS_WIDTH : COMPACT_WIDTH, open ? SETTINGS_HEIGHT : COMPACT_HEIGHT));
   const nextPosition = open
-    ? new PhysicalPosition(position.x, Math.round(Math.max(0, position.y - delta)))
-    : compactAnchorPosition ?? new PhysicalPosition(position.x, Math.round(position.y + delta));
+    ? new PhysicalPosition(Math.round(position.x - deltaX / 2), Math.round(Math.max(0, position.y - deltaY)))
+    : compactAnchorPosition ?? new PhysicalPosition(Math.round(position.x + deltaX / 2), Math.round(position.y + deltaY));
   await windowHandle.setPosition(nextPosition);
   if (!open) compactAnchorPosition = null;
   movingProgrammatically = false;
@@ -180,11 +195,22 @@ async function warmModel(modelName) {
 
 async function setGlobalHotkey(hotkey) {
   if (currentHotkey && (await isRegistered(currentHotkey))) await unregister(currentHotkey);
+  shortcutDown = false;
   await register(hotkey, async (event) => {
-    if (event.state === "Released") await toggleRecording();
+    if (!holdToTalkMode) {
+      if (event.state === "Released") await toggleRecording();
+      return;
+    }
+    if (event.state === "Pressed" && !shortcutDown) {
+      shortcutDown = true;
+      await handleHoldState(true);
+    } else if (event.state === "Released" && shortcutDown) {
+      shortcutDown = false;
+      await handleHoldState(false);
+    }
   });
   currentHotkey = hotkey;
-  if (!recording) setStatus("ready", "Listo", hotkey);
+  if (!recording) setStatus("ready", "Listo", IS_MAC && fnHoldEnabled ? "Mantén Fn para hablar" : `Mantén ${hotkey}`);
 }
 
 async function updatePreview() {
@@ -213,50 +239,115 @@ function stopPreviewLoop() {
   previewTimer = null;
 }
 
-async function toggleRecording() {
-  if (busy) return;
+function renderAudioLevel(rawLevel = 0) {
+  const normalized = Math.max(0, Math.min(1, (rawLevel - 0.008) * 13));
+  smoothedLevel = normalized > smoothedLevel
+    ? smoothedLevel * 0.38 + normalized * 0.62
+    : smoothedLevel * 0.72 + normalized * 0.28;
+  const speaking = smoothedLevel > 0.035;
+  elements.meter.classList.toggle("speaking", speaking);
+  const bars = elements.meter.querySelectorAll("i");
+  bars.forEach((bar, index) => {
+    const movement = speaking ? smoothedLevel * METER_WEIGHTS[index] : 0;
+    bar.style.height = `${Math.round(3 + movement * 24)}px`;
+  });
+}
+
+async function updateAudioLevel() {
+  if (!recording || audioLevelInFlight) return;
+  audioLevelInFlight = true;
+  try {
+    renderAudioLevel(await invoke("audio_level"));
+  } catch (_) {
+    renderAudioLevel(0);
+  } finally {
+    audioLevelInFlight = false;
+  }
+}
+
+function startAudioLevelLoop() {
+  window.clearInterval(audioLevelTimer);
+  renderAudioLevel(0);
+  audioLevelTimer = window.setInterval(updateAudioLevel, AUDIO_LEVEL_INTERVAL_MS);
+}
+
+function stopAudioLevelLoop() {
+  window.clearInterval(audioLevelTimer);
+  audioLevelTimer = null;
+  renderAudioLevel(0);
+}
+
+async function beginRecording(source = "toggle") {
+  if (busy || recording) return;
   busy = true;
   try {
-    if (!recording) {
-      if (elements.engine.value === "groq") {
-        if (!(await invoke("groq_key_status"))) {
-          await setSettingsOpen(true);
-          throw new Error("Añade una clave API de Groq para usar el modo online.");
-        }
-      } else {
-        const installed = await refreshModelStatus();
-        if (!installed) {
-          await setSettingsOpen(true);
-          throw new Error("Descarga primero un modelo local.");
-        }
+    if (elements.engine.value === "groq") {
+      if (!(await invoke("groq_key_status"))) {
+        await setSettingsOpen(true);
+        throw new Error("Añade una clave API de Groq para usar el modo online.");
       }
-      const info = await invoke("start_recording");
-      recording = true;
-      elements.settingsButton.disabled = true;
-      const engineLabel = elements.engine.value === "groq" ? "Groq online" : "Whisper local";
-      setStatus("recording", "Escuchando", `${engineLabel} · ${info.deviceName}`);
-      elements.transcript.textContent = "Habla con naturalidad…";
-      elements.transcript.className = "transcript empty partial";
-      startPreviewLoop();
     } else {
-      recording = false;
-      stopPreviewLoop();
-      setStatus("processing", "Terminando", "Preparando el texto final…");
-      const result = await invoke("stop_and_transcribe");
-      showTranscript(result.text, false);
-      const pasteMessage = result.pasted ? " · pegado" : "";
-      setStatus("ready", "Listo", `${result.elapsedMs} ms${pasteMessage}`);
-      if (result.warning) showToast(result.warning, true);
+      const installed = await refreshModelStatus();
+      if (!installed) {
+        await setSettingsOpen(true);
+        throw new Error("Descarga primero un modelo local.");
+      }
     }
+    if (source === "hold" && !holdRequested) return;
+    await invoke("start_recording");
+    recording = true;
+    elements.settingsButton.disabled = true;
+    const engineLabel = elements.engine.value === "groq" ? "Groq online" : "Whisper local";
+    setStatus("recording", "Escuchando", `${engineLabel} · suelta para terminar`);
+    elements.transcript.textContent = "Habla con naturalidad…";
+    elements.transcript.className = "transcript empty partial";
+    startPreviewLoop();
+    startAudioLevelLoop();
   } catch (error) {
     recording = false;
     stopPreviewLoop();
+    stopAudioLevelLoop();
     setStatus("error", "No se pudo completar", String(error));
     showToast(String(error), true);
   } finally {
     busy = false;
     elements.settingsButton.disabled = recording;
+    if (source === "hold" && recording && !holdRequested) void endRecording();
   }
+}
+
+async function endRecording() {
+  if (busy || !recording) return;
+  busy = true;
+  recording = false;
+  stopPreviewLoop();
+  stopAudioLevelLoop();
+  setStatus("processing", "Terminando", "Preparando el texto…");
+  try {
+    const result = await invoke("stop_and_transcribe");
+    showTranscript(result.text, false);
+    const pasteMessage = result.pasted ? " · pegado" : "";
+    setStatus("ready", "Listo", `${result.elapsedMs} ms${pasteMessage}`);
+    if (result.warning) showToast(result.warning, true);
+  } catch (error) {
+    setStatus("error", "No se pudo completar", String(error));
+    showToast(String(error), true);
+  } finally {
+    busy = false;
+    elements.settingsButton.disabled = false;
+  }
+}
+
+async function handleHoldState(pressed) {
+  holdRequested = pressed;
+  if (pressed) await beginRecording("hold");
+  else if (recording) await endRecording();
+}
+
+async function toggleRecording() {
+  holdRequested = false;
+  if (recording) await endRecording();
+  else await beginRecording("toggle");
 }
 
 async function loadSettings() {
@@ -265,6 +356,14 @@ async function loadSettings() {
   elements.modelName.value = settings.modelName;
   elements.language.value = settings.language;
   elements.hotkey.value = settings.hotkey;
+  holdToTalkMode = settings.holdToTalk ?? true;
+  fnHoldEnabled = settings.fnHold ?? true;
+  elements.holdToTalk.checked = holdToTalkMode;
+  elements.fnHold.checked = fnHoldEnabled;
+  elements.fnHoldRow.hidden = !IS_MAC;
+  elements.platformHint.textContent = IS_MAC
+    ? "Fn funciona de forma global y puede requerir Accesibilidad en macOS."
+    : "Windows no expone Fn de forma estándar; usa el atajo configurable manteniéndolo pulsado.";
   elements.autoPaste.checked = settings.autoPaste;
   await updateEngineUi();
   await setGlobalHotkey(settings.hotkey);
@@ -278,6 +377,12 @@ elements.dragHandle.addEventListener("mousedown", async (event) => {
   if (event.button === 0) await windowHandle.startDragging();
 });
 elements.engine.addEventListener("change", updateEngineUi);
+elements.holdToTalk.addEventListener("change", () => {
+  holdToTalkMode = elements.holdToTalk.checked;
+});
+elements.fnHold.addEventListener("change", () => {
+  fnHoldEnabled = elements.fnHold.checked;
+});
 elements.modelName.addEventListener("change", () => {
   preparedModel = null;
   refreshModelStatus();
@@ -298,6 +403,8 @@ elements.saveButton.addEventListener("click", async () => {
     modelName: elements.modelName.value,
     language: elements.language.value,
     hotkey: elements.hotkey.value.trim(),
+    holdToTalk: elements.holdToTalk.checked,
+    fnHold: elements.fnHold.checked,
     autoPaste: elements.autoPaste.checked,
   };
   try {
@@ -310,6 +417,8 @@ elements.saveButton.addEventListener("click", async () => {
       throw new Error("Añade una clave API de Groq.");
     }
     await invoke("save_settings", { settings });
+    holdToTalkMode = settings.holdToTalk;
+    fnHoldEnabled = settings.fnHold;
     await setGlobalHotkey(settings.hotkey);
     preparedModel = null;
     if (settings.engine === "local") void warmModel(settings.modelName);
@@ -348,6 +457,11 @@ await listen("model-download-progress", ({ payload }) => {
     : 5;
   elements.downloadProgress.style.width = `${percent}%`;
   elements.modelStatus.textContent = `Descargando… ${percent}%`;
+});
+
+await listen("push-to-talk", ({ payload }) => {
+  if (!IS_MAC || !fnHoldEnabled || !holdToTalkMode) return;
+  void handleHoldState(payload?.state === "pressed");
 });
 
 await windowHandle.onMoved(() => {

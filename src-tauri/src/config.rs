@@ -13,6 +13,10 @@ pub struct Settings {
     pub model_name: String,
     pub language: String,
     pub hotkey: String,
+    #[serde(default = "default_true")]
+    pub hold_to_talk: bool,
+    #[serde(default = "default_true")]
+    pub fn_hold: bool,
     pub auto_paste: bool,
 }
 
@@ -23,6 +27,8 @@ impl Default for Settings {
             model_name: "tiny-q5_1".into(),
             language: "es".into(),
             hotkey: "CommandOrControl+Shift+Space".into(),
+            hold_to_talk: true,
+            fn_hold: true,
             auto_paste: true,
         }
     }
@@ -40,7 +46,9 @@ impl Settings {
             return Err(AuralFlowError::Config("idioma no permitido".into()));
         }
         if self.hotkey.trim().is_empty() || self.hotkey.len() > 100 {
-            return Err(AuralFlowError::Config("el atajo global no es válido".into()));
+            return Err(AuralFlowError::Config(
+                "el atajo global no es válido".into(),
+            ));
         }
         Ok(())
     }
@@ -48,6 +56,10 @@ impl Settings {
 
 fn default_engine() -> String {
     "local".into()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf> {
@@ -64,8 +76,9 @@ pub fn load(app: &AppHandle) -> Result<Settings> {
         return Ok(Settings::default());
     }
 
-    let contents = fs::read_to_string(&path)
-        .map_err(|error| AuralFlowError::Config(format!("no se pudo leer {}: {error}", path.display())))?;
+    let contents = fs::read_to_string(&path).map_err(|error| {
+        AuralFlowError::Config(format!("no se pudo leer {}: {error}", path.display()))
+    })?;
     let settings: Settings = serde_json::from_str(&contents)
         .map_err(|error| AuralFlowError::Config(format!("JSON inválido: {error}")))?;
     settings.validate()?;
