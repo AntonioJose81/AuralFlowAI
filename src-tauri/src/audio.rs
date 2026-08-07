@@ -46,9 +46,9 @@ impl AudioRecorder {
             .default_input_device()
             .ok_or_else(|| AuralFlowError::Audio("no se encontró un micrófono".into()))?;
         let device_name = device.to_string();
-        let supported = device
-            .default_input_config()
-            .map_err(|error| AuralFlowError::Audio(format!("configuración no disponible: {error}")))?;
+        let supported = device.default_input_config().map_err(|error| {
+            AuralFlowError::Audio(format!("configuración no disponible: {error}"))
+        })?;
         let sample_format = supported.sample_format();
         let config: StreamConfig = supported.into();
         let samples = Arc::new(Mutex::new(Vec::new()));
@@ -100,7 +100,9 @@ impl AudioRecorder {
             .map_err(|_| AuralFlowError::Audio("buffer de audio bloqueado".into()))?
             .clone();
         if interleaved.is_empty() {
-            return Err(AuralFlowError::Audio("el micrófono no entregó audio".into()));
+            return Err(AuralFlowError::Audio(
+                "el micrófono no entregó audio".into(),
+            ));
         }
 
         let mono = downmix_to_mono(&interleaved, active.channels as usize);
@@ -117,13 +119,34 @@ impl AudioRecorder {
             .samples
             .lock()
             .map_err(|_| AuralFlowError::Audio("buffer de audio bloqueado".into()))?;
-        let max_samples =
-            active.source_rate as usize * active.channels as usize * seconds.max(1);
+        let max_samples = active.source_rate as usize * active.channels as usize * seconds.max(1);
         let mut start = interleaved.len().saturating_sub(max_samples);
         start -= start % active.channels as usize;
         let mono = downmix_to_mono(&interleaved[start..], active.channels as usize);
         let samples = resample_linear(&mono, active.source_rate, WHISPER_SAMPLE_RATE);
         Ok(RecordedAudio { samples })
+    }
+
+    pub fn recent_level(&self) -> Result<f32> {
+        let active = self
+            .active
+            .as_ref()
+            .ok_or_else(|| AuralFlowError::Audio("no hay una grabación activa".into()))?;
+        let interleaved = active
+            .samples
+            .lock()
+            .map_err(|_| AuralFlowError::Audio("buffer de audio bloqueado".into()))?;
+        let window_samples = (active.source_rate as usize / 20)
+            .saturating_mul(active.channels as usize)
+            .max(1);
+        let start = interleaved.len().saturating_sub(window_samples);
+        let recent = &interleaved[start..];
+        if recent.is_empty() {
+            return Ok(0.0);
+        }
+        let mean_square =
+            recent.iter().map(|sample| sample * sample).sum::<f32>() / recent.len() as f32;
+        Ok(mean_square.sqrt().clamp(0.0, 1.0))
     }
 }
 
@@ -144,13 +167,7 @@ where
             move |input: &[T], _| {
                 if let Ok(mut destination) = samples.lock() {
                     let remaining = max_samples.saturating_sub(destination.len());
-                    destination.extend(
-                        input
-                            .iter()
-                            .copied()
-                            .take(remaining)
-                            .map(f32::from_sample),
-                    );
+                    destination.extend(input.iter().copied().take(remaining).map(f32::from_sample));
                 }
             },
             error_callback,
