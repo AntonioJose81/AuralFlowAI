@@ -46,6 +46,7 @@ const elements = {
   fnHoldRow: document.querySelector("#fn-hold-row"),
   platformHint: document.querySelector("#platform-hint"),
   autoPaste: document.querySelector("#auto-paste"),
+  autoPasteHint: document.querySelector("#auto-paste-hint"),
   modelStatus: document.querySelector("#model-status"),
   modelPath: document.querySelector("#model-path"),
   downloadButton: document.querySelector("#download-button"),
@@ -71,6 +72,7 @@ let holdToTalkMode = true;
 let fnHoldEnabled = true;
 let holdRequested = false;
 let shortcutDown = false;
+let hotkeyCaptureActive = false;
 
 async function placeDock() {
   await windowHandle.setSize(new LogicalSize(COMPACT_WIDTH, COMPACT_HEIGHT));
@@ -133,6 +135,70 @@ function showToast(message, isError = false) {
   showToast.timeout = window.setTimeout(() => elements.toast.classList.remove("visible"), 3000);
 }
 
+function keyForAccelerator(event) {
+  const modifierKeys = new Set(["Alt", "AltGraph", "Control", "Meta", "Shift"]);
+  if (modifierKeys.has(event.key)) return null;
+  if (/^Key[A-Z]$/.test(event.code)) return event.code.slice(3);
+  if (/^Digit[0-9]$/.test(event.code)) return event.code.slice(5);
+  if (/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(event.key)) return event.key.toUpperCase();
+  const names = {
+    " ": "Space",
+    ArrowUp: "ArrowUp",
+    ArrowDown: "ArrowDown",
+    ArrowLeft: "ArrowLeft",
+    ArrowRight: "ArrowRight",
+    Enter: "Enter",
+    Tab: "Tab",
+    Backspace: "Backspace",
+    Delete: "Delete",
+    Home: "Home",
+    End: "End",
+    PageUp: "PageUp",
+    PageDown: "PageDown",
+  };
+  return names[event.key] ?? null;
+}
+
+function acceleratorFromEvent(event) {
+  const key = keyForAccelerator(event);
+  if (!key) return null;
+  const parts = [];
+  if (event.metaKey) parts.push(IS_MAC ? "CommandOrControl" : "Super");
+  if (event.ctrlKey) parts.push("Control");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+  parts.push(key);
+  return [...new Set(parts)].join("+");
+}
+
+async function beginHotkeyCapture() {
+  hotkeyCaptureActive = true;
+  elements.hotkey.classList.add("capturing");
+  elements.hotkey.placeholder = "Pulsa ahora la combinación…";
+  if (currentHotkey && (await isRegistered(currentHotkey))) await unregister(currentHotkey);
+}
+
+async function finishHotkeyCapture(registerValue = true) {
+  hotkeyCaptureActive = false;
+  elements.hotkey.classList.remove("capturing");
+  elements.hotkey.placeholder = "Pulsa una combinación";
+  if (registerValue && elements.hotkey.value) await setGlobalHotkey(elements.hotkey.value);
+}
+
+async function refreshAccessibility(prompt = false) {
+  if (!IS_MAC || !elements.autoPaste.checked) {
+    elements.autoPasteHint.textContent = "Usa ⌘V o Ctrl+V en la aplicación activa.";
+    elements.autoPasteHint.classList.remove("permission-error");
+    return true;
+  }
+  const allowed = await invoke("accessibility_status", { prompt });
+  elements.autoPasteHint.textContent = allowed
+    ? "Accesibilidad activa; el texto se pegará automáticamente."
+    : "Falta Accesibilidad: vuelve a activar AuralFlow en Privacidad y seguridad.";
+  elements.autoPasteHint.classList.toggle("permission-error", !allowed);
+  return allowed;
+}
+
 async function setSettingsOpen(open) {
   if (settingsOpen === open && elements.settingsPanel.hidden === !open) return;
   const position = await windowHandle.outerPosition();
@@ -162,10 +228,16 @@ async function updateEngineUi() {
   elements.privacyPill.textContent = online ? "Groq · online" : "Local · privado";
   elements.privacyPill.classList.toggle("online", online);
   if (online) {
-    const active = await invoke("groq_key_status");
+    let active = false;
+    let keyStatusError = null;
+    try {
+      active = await invoke("groq_key_status");
+    } catch (error) {
+      keyStatusError = String(error);
+    }
     elements.groqKeyStatus.textContent = active
       ? "Clave guardada de forma segura en el llavero del sistema. El audio se enviará a Groq."
-      : "Pega una clave. Se guardará cifrada en el llavero seguro de este dispositivo.";
+      : keyStatusError ?? "Pega una clave. Se guardará cifrada en el llavero seguro de este dispositivo.";
     elements.clearGroqKey.disabled = !active;
   }
 }
@@ -365,6 +437,7 @@ async function loadSettings() {
     ? "Fn funciona de forma global y puede requerir Accesibilidad en macOS."
     : "Windows no expone Fn de forma estándar; usa el atajo configurable manteniéndolo pulsado.";
   elements.autoPaste.checked = settings.autoPaste;
+  await refreshAccessibility(settings.autoPaste);
   await updateEngineUi();
   await setGlobalHotkey(settings.hotkey);
   await refreshModelStatus();
@@ -377,11 +450,35 @@ elements.dragHandle.addEventListener("mousedown", async (event) => {
   if (event.button === 0) await windowHandle.startDragging();
 });
 elements.engine.addEventListener("change", updateEngineUi);
+elements.hotkey.addEventListener("focus", () => {
+  beginHotkeyCapture().catch((error) => showToast(String(error), true));
+});
+elements.hotkey.addEventListener("keydown", async (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.key === "Escape") {
+    await finishHotkeyCapture(true);
+    elements.hotkey.blur();
+    return;
+  }
+  const accelerator = acceleratorFromEvent(event);
+  if (!accelerator) return;
+  elements.hotkey.value = accelerator;
+  await finishHotkeyCapture(true);
+  elements.hotkey.blur();
+  showToast(`Atajo: ${accelerator}`);
+});
+elements.hotkey.addEventListener("blur", () => {
+  if (hotkeyCaptureActive) finishHotkeyCapture(true).catch((error) => showToast(String(error), true));
+});
 elements.holdToTalk.addEventListener("change", () => {
   holdToTalkMode = elements.holdToTalk.checked;
 });
 elements.fnHold.addEventListener("change", () => {
   fnHoldEnabled = elements.fnHold.checked;
+});
+elements.autoPaste.addEventListener("change", () => {
+  refreshAccessibility(elements.autoPaste.checked).catch((error) => showToast(String(error), true));
 });
 elements.modelName.addEventListener("change", () => {
   preparedModel = null;
@@ -416,6 +513,9 @@ elements.saveButton.addEventListener("click", async () => {
     if (settings.engine === "groq" && !(await invoke("groq_key_status"))) {
       throw new Error("Añade una clave API de Groq.");
     }
+    const accessibilityAllowed = settings.autoPaste
+      ? await refreshAccessibility(true)
+      : true;
     await invoke("save_settings", { settings });
     holdToTalkMode = settings.holdToTalk;
     fnHoldEnabled = settings.fnHold;
@@ -423,7 +523,10 @@ elements.saveButton.addEventListener("click", async () => {
     preparedModel = null;
     if (settings.engine === "local") void warmModel(settings.modelName);
     await setSettingsOpen(false);
-    showToast("Preferencias guardadas.");
+    showToast(
+      accessibilityAllowed ? "Preferencias guardadas." : "Guardado. Falta activar Accesibilidad para pegar.",
+      !accessibilityAllowed,
+    );
   } catch (error) {
     showToast(String(error), true);
   }

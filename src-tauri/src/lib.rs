@@ -9,7 +9,10 @@ mod paste;
 mod push_to_talk;
 mod transcribe;
 
-use std::{sync::Mutex, time::Instant};
+use std::{
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 use audio::{AudioInfo, AudioRecorder};
 use config::Settings;
@@ -49,15 +52,34 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
-fn groq_api_key(state: &RuntimeState) -> std::result::Result<Option<String>, String> {
-    let mut cached = state
+async fn groq_api_key(state: &RuntimeState) -> std::result::Result<Option<String>, String> {
+    if let Some(cached) = state
         .groq_api_key
         .lock()
-        .map_err(|_| "Clave API: estado bloqueado".to_string())?;
-    if cached.is_none() {
-        *cached = credentials::load_groq_key()?;
+        .map_err(|_| "Clave API: estado bloqueado".to_string())?
+        .clone()
+    {
+        return Ok(Some(cached));
     }
-    Ok(cached.clone())
+
+    // Keychain Services can wait indefinitely for its security agent. Keep
+    // that work away from AppKit's main thread and stop waiting after 3 s so
+    // the floating window can never freeze during startup.
+    let task = tauri::async_runtime::spawn_blocking(credentials::load_groq_key);
+    let loaded = tokio::time::timeout(Duration::from_secs(3), task)
+        .await
+        .map_err(|_| {
+            "El Llavero no respondió. Abre AuralFlow de nuevo o guarda la clave de Groq otra vez."
+                .to_string()
+        })?
+        .map_err(|error| format!("Llavero: la lectura terminó inesperadamente: {error}"))??;
+    if let Some(api_key) = loaded.as_ref() {
+        *state
+            .groq_api_key
+            .lock()
+            .map_err(|_| "Clave API: estado bloqueado".to_string())? = Some(api_key.clone());
+    }
+    Ok(loaded)
 }
 
 #[tauri::command]
@@ -88,8 +110,8 @@ fn set_groq_api_key(
 }
 
 #[tauri::command]
-fn groq_key_status(state: State<'_, RuntimeState>) -> std::result::Result<bool, String> {
-    Ok(groq_api_key(&state)?.is_some())
+async fn groq_key_status(state: State<'_, RuntimeState>) -> std::result::Result<bool, String> {
+    Ok(groq_api_key(&state).await?.is_some())
 }
 
 #[tauri::command]
@@ -171,7 +193,8 @@ async fn preview_transcription(
     }
 
     if settings.engine == "groq" {
-        let api_key = groq_api_key(&state)?
+        let api_key = groq_api_key(&state)
+            .await?
             .ok_or_else(|| "Servicio online: falta la clave API de Groq".to_string())?;
         let text = online::transcribe_groq(&audio.samples, &settings.language, &api_key)
             .await
@@ -213,7 +236,8 @@ async fn stop_and_transcribe(
     let started = Instant::now();
 
     if settings.engine == "groq" {
-        let api_key = groq_api_key(&state)?
+        let api_key = groq_api_key(&state)
+            .await?
             .ok_or_else(|| "Servicio online: falta la clave API de Groq".to_string())?;
         let text = online::transcribe_groq(&audio.samples, &language, &api_key)
             .await
@@ -277,6 +301,11 @@ async fn stop_and_transcribe(
 #[tauri::command]
 fn copy_text(text: String) -> std::result::Result<(), String> {
     paste::copy_text(&text).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn accessibility_status(prompt: bool) -> bool {
+    paste::accessibility_status(prompt)
 }
 
 pub fn run() {
@@ -343,6 +372,7 @@ pub fn run() {
             preview_transcription,
             stop_and_transcribe,
             copy_text,
+            accessibility_status,
         ])
         .build(tauri::generate_context!())
         .expect("error al construir AuralFlow")

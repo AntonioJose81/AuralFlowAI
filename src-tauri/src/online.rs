@@ -37,7 +37,9 @@ pub async fn transcribe_groq(samples: &[f32], language: &str, api_key: &str) -> 
         .multipart(form)
         .send()
         .await
-        .map_err(|error| AuralFlowError::Online(format!("no se pudo conectar con Groq: {error}")))?;
+        .map_err(|error| {
+            AuralFlowError::Online(format!("no se pudo conectar con Groq: {error}"))
+        })?;
     let status = response.status();
     if !status.is_success() {
         let detail = response.text().await.unwrap_or_default();

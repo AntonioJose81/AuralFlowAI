@@ -75,7 +75,9 @@ pub async fn download(app: &AppHandle, name: &str) -> Result<ModelStatus> {
         .await
         .map_err(|error| AuralFlowError::Model(format!("falló la descarga: {error}")))?
         .error_for_status()
-        .map_err(|error| AuralFlowError::Model(format!("el servidor rechazó la descarga: {error}")))?;
+        .map_err(|error| {
+            AuralFlowError::Model(format!("el servidor rechazó la descarga: {error}"))
+        })?;
     let total_bytes = response.content_length();
     let temporary = path.with_extension("bin.part");
     let mut file = tokio::fs::OpenOptions::new()
@@ -110,7 +112,9 @@ pub async fn download(app: &AppHandle, name: &str) -> Result<ModelStatus> {
     if downloaded_bytes < 1_000_000 {
         drop(file);
         let _ = tokio::fs::remove_file(&temporary).await;
-        return Err(AuralFlowError::Model("el archivo descargado no parece un modelo válido".into()));
+        return Err(AuralFlowError::Model(
+            "el archivo descargado no parece un modelo válido".into(),
+        ));
     }
     file.rewind()
         .await

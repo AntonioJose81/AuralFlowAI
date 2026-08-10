@@ -81,7 +81,8 @@ fn transcribe_with_context(
         ));
     }
 
-    let rms = (samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32).sqrt();
+    let rms =
+        (samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32).sqrt();
     if rms < 0.003 {
         return Err(AuralFlowError::Transcription(
             "no se ha detectado voz; revisa el micrófono".into(),
@@ -106,7 +107,11 @@ fn transcribe_with_context(
     let available = std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(4);
-    let threads = if available > 4 { available - 1 } else { available };
+    let threads = if available > 4 {
+        available - 1
+    } else {
+        available
+    };
     let threads = threads.clamp(1, 12) as i32;
     params.set_n_threads(threads);
     if language == "auto" {

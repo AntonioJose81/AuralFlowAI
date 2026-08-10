@@ -80,7 +80,8 @@
           </label>
           <label class="wide">
             Atajo global
-            <input id="hotkey" value="CommandOrControl+Shift+Space" />
+            <input id="hotkey" class="hotkey-input" value="CommandOrControl+Shift+Space" readonly aria-label="Configurar atajo global" />
+            <small class="field-hint">Haz clic y pulsa la combinación que quieras usar.</small>
           </label>
           <label class="switch-row wide">
             <span><strong>Mantener para hablar</strong><small>Empieza al pulsar y transcribe al soltar.</small></span>
@@ -92,7 +93,7 @@
           </label>
           <p id="platform-hint" class="platform-hint wide"></p>
           <label class="switch-row wide">
-            <span><strong>Pegar al terminar</strong><small>Usa ⌘V o Ctrl+V en la aplicación activa.</small></span>
+            <span><strong>Pegar al terminar</strong><small id="auto-paste-hint">Usa ⌘V o Ctrl+V en la aplicación activa.</small></span>
             <input id="auto-paste" type="checkbox" checked />
           </label>
         </div>
